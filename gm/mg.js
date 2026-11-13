@@ -80,7 +80,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { konta: 'Konta', bank: 'Bank', firmy: 'Firmy', katalog: 'Katalog', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +90,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ konta, bank, firmy, katalog, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ konta, bank, firmy, rekrutacja, katalog, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -217,6 +217,9 @@ const WZOR_TOWAROW = [
   { nazwa: 'Ogniwa paliwowe', kategoria: 'paliwo', masa: 2, jednostka: 'skrzynia' },
   { nazwa: 'Części hipernapędu', kategoria: 'technika', masa: 5, jednostka: 'kontener' },
 ];
+const WZOR_OFERT = [
+  { nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', cena: 5000, pojemnosc: 40, pensja: 15, opis: 'Stare sztolnie, żyła rudy na wyczerpaniu.' },
+];
 const WZOR_PLANET = [
   { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże' },
   { nazwa: 'Tatooine', sektor: 'Arkanis' },
@@ -226,6 +229,8 @@ async function katalog() {
   const { katalog: k } = await api('mg_katalog');
   const towary = h('textarea', { style: 'min-height:260px' }, JSON.stringify(k.towary, null, 2));
   const planety = h('textarea', { style: 'min-height:200px' }, JSON.stringify(k.planety, null, 2));
+  const pl = Object.fromEntries(k.planety.map((p) => [p.id, p.nazwa]));
+  const oferty = h('textarea', { style: 'min-height:200px' }, JSON.stringify(k.oferty.map((o) => ({ ...o, planeta: pl[o.planeta] || '' })), null, 2));
   const info = h('div');
   glowna.append(h('div.karta',
     h('h2', 'Katalog gry'),
@@ -235,10 +240,11 @@ async function katalog() {
     info,
     h('label', 'Towary', towary), h('br'),
     h('label', 'Planety', planety), h('br'),
+    h('label', 'Rynek nieruchomości — oferty budynków do kupienia przez firmy (nazwa, typ, planeta po nazwie, cena, pojemnosc, pensja na pracownika, opis). Kupiona oferta znika.', oferty), h('br'),
     h('div.rzad',
       btn('Zapisz katalog', async () => {
         try {
-          await api('mg_katalog_zapisz', { towary: JSON.parse(towary.value), planety: JSON.parse(planety.value) });
+          await api('mg_katalog_zapisz', { towary: JSON.parse(towary.value), planety: JSON.parse(planety.value), oferty: JSON.parse(oferty.value) });
           wyczysc(glowna); await katalog();
           glowna.prepend(msg('Zapisano katalog.', 'ok'));
         } catch (e) {
@@ -248,14 +254,54 @@ async function katalog() {
       btn('Wstaw przykład', () => {
         if (towary.value.trim() === '[]') towary.value = JSON.stringify(WZOR_TOWAROW, null, 2);
         if (planety.value.trim() === '[]') planety.value = JSON.stringify(WZOR_PLANET, null, 2);
+        if (oferty.value.trim() === '[]') oferty.value = JSON.stringify(WZOR_OFERT, null, 2);
       }))));
+}
+
+// ---------- rekrutacja: pula kandydatów ----------
+
+const WZOR_KANDYDATOW = [
+  { imie: 'Orrin Vale', funkcja: 'inżynier górniczy', pensja: 200, opis: 'Twierdzi, że prowadził kopalnię na Kessel.', statystyki: { zarzadzanie: 7, logistyka: 5, lojalnosc: 4 } },
+  { imie: 'Nyx', kryptonim: 'WRÓBEL', funkcja: 'pilot', pula: 'agencja', opis: 'Własny frachtowiec, długi u Huttów.', statystyki: { pilotaz: 8, konspiracja: 6, lojalnosc: 3 } },
+];
+
+async function rekrutacja() {
+  const { kandydaci } = await api('mg_kandydaci');
+  const { firmy: lista } = await api('mg_firmy');
+  const nazwyFirm = Object.fromEntries(lista.map((f) => [f.id, f.nazwa]));
+  const pole2 = h('textarea', { style: 'min-height:320px' }, JSON.stringify(kandydaci.map(({ testy, ...k }) => k), null, 2));
+  const info = h('div');
+  glowna.append(
+    h('div.karta',
+      h('h2', 'Pula kandydatów do zatrudnienia'),
+      h('p.slaby', 'Kandydaci widoczni w zakładce Załoga firm. „pula”: „ogolna” (firmy i komórki) albo „agencja” (agencja handlowa). '
+        + 'Ukryte „statystyki” (1–10): ' + Object.entries(STATYSTYKI).map(([k, n]) => `${k} (${n})`).join(', ') + '. '
+        + 'Gracze mogą testować kandydata raz w miesiącu (każda firma osobno) i zatrudnić go — wtedy znika z puli. Nie zmieniaj pola „id”.'),
+      info, pole2, h('br'),
+      h('div.rzad',
+        btn('Zapisz pulę', async () => {
+          try {
+            await api('mg_kandydaci_zapisz', { kandydaci: JSON.parse(pole2.value) });
+            wyczysc(glowna); await rekrutacja();
+            glowna.prepend(msg('Zapisano pulę kandydatów.', 'ok'));
+          } catch (e) {
+            wyczysc(info).append(msg(e instanceof SyntaxError ? 'Błąd w JSON: ' + e.message : e.message));
+          }
+        }, '.glowny'),
+        btn('Wstaw przykład', () => { if (pole2.value.trim() === '[]') pole2.value = JSON.stringify(WZOR_KANDYDATOW, null, 2); }))),
+    h('div.karta', h('h2', 'Testy przeprowadzone przez graczy'),
+      h('table', h('tr', h('th', 'Kandydat'), h('th', 'Firma'), h('th', 'Data'), h('th', 'Wynik testu'), h('th', 'Prawda')),
+        kandydaci.flatMap((k) => Object.entries(k.testy || {}).map(([fid, t]) => h('tr',
+          h('td', k.imie), h('td', nazwyFirm[fid] || '?'), h('td', new Date(t.data).toLocaleDateString('pl-PL')),
+          h('td', Object.entries(t.wyniki).map(([a, b]) => `${a}: ${b}`).join(', ')),
+          h('td.slaby', Object.entries(k.statystyki || {}).map(([a, b]) => `${STATYSTYKI[a] || a} ${b}`).join(', '))))))));
 }
 
 // ---------- firmy ----------
 
-const PROFILE_FIRM = { transport: 'Transport', komorka: 'Komórka' };
+const PROFILE_FIRM = { transport: 'Transport', komorka: 'Komórka', agencja: 'Agencja (przykrywka ISB)' };
 const ROLE_FIRMY = { wlasciciel: 'właściciel', menedzer: 'menedżer', pracownik: 'pracownik' };
-const STATYSTYKI = { pilotaz: 'pilotaż', dowodzenie: 'dowodzenie', taktyka: 'taktyka', zarzadzanie: 'zarządzanie', logistyka: 'logistyka', lojalnosc: 'lojalność' };
+const STATYSTYKI = { pilotaz: 'pilotaż', dowodzenie: 'dowodzenie', taktyka: 'taktyka', zarzadzanie: 'zarządzanie', logistyka: 'logistyka', lojalnosc: 'lojalność', konspiracja: 'konspiracja' };
 const STATUS_KURSU = { szkic: 'szkic', zgloszony: 'CZEKA NA DECYZJĘ', w_realizacji: 'w trasie', zakonczony: 'zakończony', odrzucony: 'odrzucony' };
 
 // Dane firmy do edytora: identyfikatory planet, towarów, statków i osób zamienione na nazwy.
@@ -267,12 +313,25 @@ function daneDoEdycji(d, kat) {
   const bu = Object.fromEntries((d.budynki || []).map((b) => [b.id, b.nazwa]));
   const wynik = {
     flota: d.flota.map((s) => ({ ...s, lokalizacja: pl[s.lokalizacja] || '', kapitan: os[s.kapitan] || '' })),
-    zaloga: d.zaloga.map((z) => ({ ...z, statek: st[z.statek] || '', ...(d.budynki ? { budynek: bu[z.budynek] || '' } : {}) })),
+    zaloga: d.zaloga.map((z) => ({ ...z, statek: st[z.statek] || '', budynek: bu[z.budynek] || '' })),
     magazyn: d.magazyn.map((m) => ({ planeta: pl[m.planeta] || m.planeta, towar: tw[m.towar] || m.towar, ilosc: m.ilosc })),
   };
-  if (d.budynki) wynik.budynki = d.budynki.map((b) => ({ ...b, planeta: pl[b.planeta] || '', menedzer: os[b.menedzer] || '' }));
+  wynik.budynki = (d.budynki || []).map((b) => ({ ...b, planeta: pl[b.planeta] || '', menedzer: os[b.menedzer] || '' }));
+  wynik.zaloga = wynik.zaloga.map((z) => ({ ...z, gracz: z.gracz ? (LOGINY[z.gracz] || z.gracz) : '' }));
   return wynik;
 }
+
+const LOGINY = {}; // id gracza -> login (uzupełniane przy wczytaniu zakładki Firmy)
+
+const WZOR_AGENCJI = {
+  flota: [{ nazwa: 'Szara Mewa', klasa: 'frachtowiec YT-2400', ladownosc: 40, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Tobb' }],
+  zaloga: [
+    { imie: 'Tobb', kryptonim: 'KRUK', gracz: 'tobb', funkcja: 'przemytnik', statystyki: { pilotaz: 6, konspiracja: 4, lojalnosc: 3 } },
+    { imie: 'Lessa', kryptonim: 'SOWA', funkcja: 'informatorka', statystyki: { konspiracja: 8, lojalnosc: 6 } },
+  ],
+  magazyn: [],
+  budynki: [],
+};
 
 const WZOR_KOMORKI = {
   flota: [{ nazwa: 'Cień Zephyrii', klasa: 'korweta CR70', ladownosc: 60, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Mara Dex' }],
@@ -297,6 +356,7 @@ const WZOR_TRANSPORTU = {
 async function firmy() {
   const { firmy: lista, katalog: kat } = await api('mg_firmy');
   const { uzytkownicy } = await api('mg_uzytkownicy');
+  for (const u of uzytkownicy) LOGINY[u.id] = u.login;
   const gracze = uzytkownicy.filter((u) => u.rola !== 'mg');
   const postac = Object.fromEntries(uzytkownicy.map((u) => [u.id, u.postac]));
   const odswiez = async (t) => { wyczysc(glowna); await firmy(); if (t) glowna.prepend(msg(t, 'ok')); };
@@ -336,12 +396,30 @@ async function firmy() {
     glowna.append(h('div.karta', h('h2', `Misje do obsłużenia (${misje.length})`), misje.map(({ f, m }) => kartaMisji(f, m, kat, odswiez))));
   }
 
+  // Teczki agencji: otwarte cele obserwacji, do których MG dopisuje meldunki z terenu.
+  const teczki = lista.flatMap((f) => (f.dane.cele || []).filter((c) => c.status === 'aktywny').map((c) => ({ f, c })));
+  if (teczki.length) {
+    glowna.append(h('div.karta', h('h2', `Teczki w obserwacji (${teczki.length})`), teczki.map(({ f, c }) => {
+      const zrodlo = h('input', { placeholder: 'źródło (np. kryptonim agenta)' });
+      const tresc = h('textarea', { style: 'min-height:70px;font-family:inherit', placeholder: 'Treść meldunku' });
+      return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' },
+        h('div', h('b', `${f.nazwa}: ${c.nazwa}`), h('span.slaby', `  · założył(a) ${c.autor} · meldunków: ${c.meldunki.length}`)),
+        c.opis ? h('div.slaby', c.opis) : null,
+        c.meldunki.length ? h('div.slaby', { style: 'margin-top:4px' }, 'Ostatni: ' + c.meldunki[c.meldunki.length - 1].tresc.slice(0, 160)) : null,
+        h('div.siatka', { style: 'margin-top:8px' }, pole('Źródło', zrodlo)), tresc,
+        h('div', { style: 'margin-top:6px' }, btn('Dopisz meldunek', bezpiecznie(async () => {
+          await api('mg_meldunek', { firma: f.id, cel: c.id, zrodlo: zrodlo.value, tresc: tresc.value });
+          await odswiez('Meldunek dopisany.');
+        }), '.glowny')));
+    })));
+  }
+
   // Edytor jednej firmy (nowej albo istniejącej).
   const edytor = (f) => {
     const nowa = !f;
-    f = f || { id: '', nazwa: '', profil: 'transport', czlonkowie: [], dane: { flota: [], zaloga: [], magazyn: [] } };
+    f = f || { id: '', nazwa: '', profil: 'transport', czlonkowie: [], dane: { flota: [], zaloga: [], magazyn: [], budynki: [] } };
     // Nowa firma: zmiana profilu podmienia pusty szablon danych (komórka ma też budynki).
-    const pustyDlaProfilu = (p) => JSON.stringify(p === 'komorka' ? { flota: [], zaloga: [], magazyn: [], budynki: [] } : { flota: [], zaloga: [], magazyn: [] }, null, 2);
+    const pustyDlaProfilu = () => JSON.stringify({ flota: [], zaloga: [], magazyn: [], budynki: [] }, null, 2);
     const nazwa = h('input', { value: f.nazwa });
     const profil = h('select', { disabled: !nowa }, Object.entries(PROFILE_FIRM).map(([k, n]) => h('option', { value: k, selected: k === f.profil }, n)));
     const czlonkowie = h('div');
@@ -378,13 +456,14 @@ async function firmy() {
       h('label', 'Członkowie (właściciel i menedżer mogą planować kursy i zmieniać przydziały; pracownik tylko podgląda)'),
       czlonkowie,
       btn('+ Członek', () => dodajCzlonka()), h('br'), h('br'),
-      h('label', 'Flota, załoga, magazyn' + (f.profil === 'komorka' || nowa ? ' (w komórce także budynki)' : '') + ' — JSON. Planety, towary, statki, budynki i osoby wpisuj po nazwie. '
-        + 'Stany statku: sprawny, uszkodzony, w naprawie. Stan osoby: zdrowy, ranny. '
+      h('label', 'Flota, załoga, magazyn, budynki — JSON. Planety, towary, statki, budynki i osoby wpisuj po nazwie. '
+        + 'Stany statku: sprawny, uszkodzony, w naprawie. Stan osoby: zdrowy, ranny, spalony, zatrzymany. '
+        + 'Agencja: „kryptonim” kontrahenta i „gracz” (login), jeśli to postać gracza — wtedy wypłaty idą na jego rachunek. '
         + 'Ukryte „statystyki” osób (1–10): ' + Object.entries(STATYSTYKI).map(([k, n]) => `${k} (${n})`).join(', ') + '. Gracze ich nie widzą — poznają je w przybliżeniu testem.', dane),
       h('br'),
       h('div.rzad',
         btn('Zapisz', zapisz, '.glowny'),
-        btn('Wstaw przykład', () => { dane.value = JSON.stringify(profil.value === 'komorka' ? WZOR_KOMORKI : WZOR_TRANSPORTU, null, 2); }),
+        btn('Wstaw przykład', () => { dane.value = JSON.stringify({ komorka: WZOR_KOMORKI, agencja: WZOR_AGENCJI }[profil.value] || WZOR_TRANSPORTU, null, 2); }),
         nowa ? null : btn('Usuń firmę', bezpiecznie(async () => {
           if (!confirm(`Usunąć firmę ${f.nazwa} razem z flotą i magazynami?`)) return;
           await api('mg_firma_usun', { id: f.id });
@@ -418,6 +497,7 @@ function kartaMisji(f, m, kat, odswiez) {
 
   const naglowek = h('div',
     h('div', h('b', `${f.nazwa}: ${m.nazwa}`), h('span.slaby', `  · ${m.status === 'zgloszona' ? 'CZEKA NA ZATWIERDZENIE' : 'ZATWIERDZONA — do rozliczenia po sesji'} · termin ${m.termin} · ${pl[m.planeta] || 'bez rejonu'} · zgłosił(a) ${m.autor || '?'}`)),
+    m.przykrywka ? h('div.slaby', 'Legenda: ' + m.przykrywka) : null,
     h('div', { style: 'white-space:pre-wrap;margin:6px 0' }, m.cel));
 
   if (m.status === 'zgloszona') {
@@ -430,8 +510,8 @@ function kartaMisji(f, m, kat, odswiez) {
 
   // Rozliczenie: wynik dla każdego statku i człowieka, zmiany w magazynach, raport.
   const wybor = (opcje, dom) => h('select', Object.entries(opcje).map(([k, n]) => h('option', { value: k, selected: k === dom }, n)));
-  const wynStatkow = Object.fromEntries(statki.map((s) => [s.id, wybor({ sprawny: 'wrócił sprawny', uszkodzony: 'uszkodzony', zniszczony: 'ZNISZCZONY' }, 'sprawny')]));
-  const wynLudzi = Object.fromEntries(ludzie.map((z) => [z.id, wybor({ zdrowy: 'cały', ranny: 'ranny', zginal: 'ZGINĄŁ' }, 'zdrowy')]));
+  const wynStatkow = Object.fromEntries(statki.map((s) => [s.id, wybor({ sprawny: 'wrócił sprawny', uszkodzony: 'uszkodzony', zniszczony: 'ZNISZCZONY', przejety: 'PRZEJĘTY przez wroga' }, 'sprawny')]));
+  const wynLudzi = Object.fromEntries(ludzie.map((z) => [z.id, wybor({ zdrowy: 'cały', ranny: 'ranny', zginal: 'ZGINĄŁ', spalony: 'spalony (zdemaskowany)', zatrzymany: 'zatrzymany' }, 'zdrowy')]));
   const wracaNa = h('select', h('option', { value: '' }, 'tam, skąd wyleciały'), kat.planety.map((p) => h('option', { value: p.id }, p.nazwa)));
   const lupy = h('div');
   const dodajLup = () => {
@@ -444,7 +524,7 @@ function kartaMisji(f, m, kat, odswiez) {
   };
   const raport = h('textarea', { style: 'font-family:inherit', placeholder: 'Raport dla graczy: co się wydarzyło na sesji' });
   const rozlicz = bezpiecznie(async () => {
-    const straty = [...Object.values(wynStatkow), ...Object.values(wynLudzi)].filter((s) => ['zniszczony', 'zginal'].includes(s.value)).length;
+    const straty = [...Object.values(wynStatkow), ...Object.values(wynLudzi)].filter((s) => ['zniszczony', 'przejety', 'zginal'].includes(s.value)).length;
     if (!confirm(`Rozliczyć misję „${m.nazwa}”?${straty ? ` Trwałe straty: ${straty}.` : ''} Tego nie da się cofnąć.`)) return;
     await api('mg_misja_rozlicz', {
       firma: f.id, misja: m.id, raport: raport.value, wraca_na: wracaNa.value,
@@ -458,7 +538,7 @@ function kartaMisji(f, m, kat, odswiez) {
   return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' }, naglowek,
     h('table', h('tr', h('th', 'Siły'), h('th', 'Ukryte statystyki'), h('th', 'Wynik')),
       statki.map((s) => h('tr', h('td', s.nazwa, h('span.slaby', ` (${s.klasa || 'statek'})`)), h('td.slaby', '—'), h('td', wynStatkow[s.id]))),
-      ludzie.map((z) => h('tr', h('td', z.imie, h('span.slaby', ` (${z.funkcja || ''})`)), h('td.slaby', statystyki(z) || '—'), h('td', wynLudzi[z.id])))),
+      ludzie.map((z) => h('tr', h('td', z.kryptonim ? `${z.kryptonim} · ` : '', z.imie, h('span.slaby', ` (${z.funkcja || ''})`)), h('td.slaby', statystyki(z) || '—'), h('td', wynLudzi[z.id])))),
     h('br'),
     h('div.siatka', pole('Statki kończą na', wracaNa)),
     h('label', 'Łup i straty w magazynach'), lupy, btn('+ Pozycja', dodajLup), h('br'), h('br'),

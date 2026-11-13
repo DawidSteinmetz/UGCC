@@ -3,38 +3,11 @@
 // magazyn, legalne kursy), a do tego:
 //   - misje: wysłanie statków i ludzi na akcję; jedna misja = jedna sesja z MG,
 //     rozliczana ręcznie przez MG (straty statków i ludzi, łup, raport);
-//   - budynki (np. kopalnia) z prostą obsadą: liczba pracowników i kierownik;
-//   - ukryte statystyki kapitanów i kierowników: gracz poznaje je tylko w przybliżeniu,
-//     przeprowadzając test.
+// Budynki, testy ukrytych statystyk i rekrutacja są wspólne dla wszystkich profili (firmy.php).
 
 declare(strict_types=1);
 
-// Ukryte cechy osób (1–10). Klucz => nazwa wyświetlana.
-const STATYSTYKI = [
-    'pilotaz' => 'Pilotaż',
-    'dowodzenie' => 'Dowodzenie',
-    'taktyka' => 'Taktyka',
-    'zarzadzanie' => 'Zarządzanie',
-    'logistyka' => 'Logistyka',
-    'lojalnosc' => 'Lojalność',
-];
-const STANY_OSOBY = ['zdrowy', 'ranny', 'na misji'];
 const STATUSY_MISJI = ['szkic', 'zgloszona', 'zatwierdzona', 'rozliczona', 'odrzucona'];
-const TEST_CO_ILE_GODZIN = 24;
-
-// Wynik testu: prawdziwa wartość z szumem ±2, podana słownie. Test daje zgrubny obraz,
-// a dwa testy tej samej osoby mogą się różnić.
-function komorka_ocena(int $v): string
-{
-    $z = max(1, min(10, $v + random_int(-2, 2)));
-    return match (true) {
-        $z <= 2 => 'bardzo słabo',
-        $z <= 4 => 'słabo',
-        $z <= 6 => 'przeciętnie',
-        $z <= 8 => 'dobrze',
-        default => 'wybitnie',
-    };
-}
 
 function komorka_oczysc_misje(array $w, array $dane): array
 {
@@ -45,6 +18,7 @@ function komorka_oczysc_misje(array $w, array $dane): array
         'id' => mb_substr((string) ($w['id'] ?? ''), 0, 32),
         'nazwa' => mb_substr(trim((string) ($w['nazwa'] ?? '')), 0, 80) ?: 'Misja bez nazwy',
         'cel' => mb_substr(trim((string) ($w['cel'] ?? '')), 0, 2000),
+        'przykrywka' => mb_substr(trim((string) ($w['przykrywka'] ?? '')), 0, 1000),
         'planeta' => mb_substr((string) ($w['planeta'] ?? ''), 0, 32),
         'termin' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $termin) ? $termin : '',
         'statki' => array_values(array_intersect(array_unique((array) ($w['statki'] ?? [])), $statki)),
@@ -129,33 +103,6 @@ function komorka_operacja(array &$firma, string $op, array $w, array $u, bool $m
             $dane['misje'] = array_values(array_filter($dane['misje'], fn($x) => $x['id'] !== $mid));
             return ['ok' => true];
 
-        case 'budynek_pracownicy':
-            // Prosta obsada: liczba pracowników od 0 do pojemności budynku.
-            foreach ($dane['budynki'] as &$b) {
-                if ($b['id'] === ($w['budynek'] ?? '')) {
-                    $b['pracownicy'] = max(0, min((int) $b['pojemnosc'], (int) ($w['pracownicy'] ?? 0)));
-                    return ['ok' => true];
-                }
-            }
-            blad('Nie ma takiego budynku.', 404);
-
-        case 'test':
-            // Test kapitana / kierownika: zgrubna ocena ukrytych cech, najwyżej raz na dobę na osobę.
-            foreach ($dane['zaloga'] as &$z) {
-                if ($z['id'] !== ($w['czlonek'] ?? '')) continue;
-                if (empty($z['statystyki'])) blad('Tej osoby nie da się ocenić testem.');
-                $ostatni = isset($z['ocena']['data']) ? strtotime($z['ocena']['data']) : 0;
-                if ($ostatni && time() - $ostatni < TEST_CO_ILE_GODZIN * 3600) {
-                    blad('Kolejny test tej osoby będzie możliwy po ' . date('d.m H:i', $ostatni + TEST_CO_ILE_GODZIN * 3600) . '.');
-                }
-                $wyniki = [];
-                foreach ($z['statystyki'] as $k => $v) {
-                    $wyniki[STATYSTYKI[$k] ?? $k] = komorka_ocena((int) $v);
-                }
-                $z['ocena'] = ['data' => date('c'), 'wyniki' => $wyniki, 'tester' => $u['postac']];
-                return ['ok' => true, 'ocena' => $z['ocena']];
-            }
-            blad('Nie ma takiej osoby.', 404);
     }
     // Reszta (statki, przydziały, kursy handlowe) działa jak w firmie przewozowej.
     return transport_operacja($firma, $op, $w, $u, $moze);
@@ -197,8 +144,8 @@ function obsluz_komorka(string $akcja, bool $post): void
             odpowiedz(['ok' => true]);
 
         // MG: ręczne rozliczenie po sesji.
-        //   statki: { id: 'sprawny' | 'uszkodzony' | 'zniszczony' }
-        //   zaloga: { id: 'zdrowy' | 'ranny' | 'zginal' }
+        //   statki: { id: 'sprawny' | 'uszkodzony' | 'zniszczony' | 'przejety' }
+        //   zaloga: { id: 'zdrowy' | 'ranny' | 'zginal' | 'spalony' | 'zatrzymany' }
         //   lup:    [ { planeta, towar, ilosc } ]   ilość ujemna = strata w magazynie
         //   wraca_na: planeta, na której statki kończą misję (opcjonalnie)
         //   raport: tekst widoczny dla graczy
@@ -232,9 +179,9 @@ function obsluz_komorka(string $akcja, bool $post): void
                         foreach ($d['flota'] as $s) {
                             if (in_array($s['id'], $m['statki'], true)) {
                                 $wynik = (string) ($w['statki'][$s['id']] ?? 'sprawny');
-                                if (!in_array($wynik, ['sprawny', 'uszkodzony', 'zniszczony'], true)) $wynik = 'sprawny';
+                                if (!in_array($wynik, ['sprawny', 'uszkodzony', 'zniszczony', 'przejety'], true)) $wynik = 'sprawny';
                                 $straty['statki'][] = ['nazwa' => $s['nazwa'], 'wynik' => $wynik];
-                                if ($wynik === 'zniszczony') continue;
+                                if (in_array($wynik, ['zniszczony', 'przejety'], true)) continue;
                                 $s['stan'] = $wynik;
                                 if ($wraca_na !== '') $s['lokalizacja'] = $wraca_na;
                             }
@@ -247,7 +194,8 @@ function obsluz_komorka(string $akcja, bool $post): void
                         foreach ($d['zaloga'] as $z) {
                             if (in_array($z['id'], $m['zaloga'], true)) {
                                 $wynik = (string) ($w['zaloga'][$z['id']] ?? 'zdrowy');
-                                if (!in_array($wynik, ['zdrowy', 'ranny', 'zginal'], true)) $wynik = 'zdrowy';
+                                // spalony = zdemaskowany, zatrzymany = w rękach przeciwnika; obaj zostają na liście.
+                                if (!in_array($wynik, ['zdrowy', 'ranny', 'zginal', 'spalony', 'zatrzymany'], true)) $wynik = 'zdrowy';
                                 $straty['zaloga'][] = ['imie' => $z['imie'], 'wynik' => $wynik];
                                 if ($wynik === 'zginal') continue;
                                 $z['stan'] = $wynik;

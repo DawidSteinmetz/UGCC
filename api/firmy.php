@@ -9,7 +9,22 @@
 
 declare(strict_types=1);
 
-const PROFILE_FIRM = ['transport', 'komorka'];
+const PROFILE_FIRM = ['transport', 'komorka', 'agencja'];
+
+// Ukryte cechy osób (1–10). Klucz => nazwa wyświetlana. Gracz poznaje je tylko testem.
+const STATYSTYKI = [
+    'pilotaz' => 'Pilotaż',
+    'dowodzenie' => 'Dowodzenie',
+    'taktyka' => 'Taktyka',
+    'zarzadzanie' => 'Zarządzanie',
+    'logistyka' => 'Logistyka',
+    'lojalnosc' => 'Lojalność',
+    'konspiracja' => 'Konspiracja',
+];
+const STANY_OSOBY = ['zdrowy', 'ranny', 'na misji', 'spalony', 'zatrzymany'];
+const TEST_CO_ILE_DNI = 30;
+// Z której puli kandydatów rekrutuje dany profil.
+const PULA_PROFILU = ['transport' => 'ogolna', 'komorka' => 'ogolna', 'agencja' => 'agencja'];
 const ROLE_FIRMY = ['wlasciciel', 'menedzer', 'pracownik'];
 const STANY_STATKU = ['sprawny', 'uszkodzony', 'w naprawie', 'w trasie', 'na misji'];
 const STATUSY_SZLAKU = ['szkic', 'zgloszony', 'w_realizacji', 'zakonczony', 'odrzucony'];
@@ -17,7 +32,57 @@ const STATUSY_SZLAKU = ['szkic', 'zgloszony', 'w_realizacji', 'zakonczony', 'odr
 function katalog(): array
 {
     $k = wczytaj('katalog', []);
-    return ['towary' => $k['towary'] ?? [], 'planety' => $k['planety'] ?? []];
+    return ['towary' => $k['towary'] ?? [], 'planety' => $k['planety'] ?? [], 'oferty' => $k['oferty'] ?? []];
+}
+
+// Test ukrytych cech: wartość ±2, opisana słownie. Najwyżej raz na TEST_CO_ILE_DNI dni.
+function test_ocena(array $statystyki, ?array $poprzednia, string $tester): array
+{
+    if (!$statystyki) blad('Tej osoby nie da się ocenić testem.');
+    $ostatni = isset($poprzednia['data']) ? strtotime($poprzednia['data']) : 0;
+    $nastepny = $ostatni + TEST_CO_ILE_DNI * 86400;
+    if ($ostatni && time() < $nastepny) blad('Kolejny test tej osoby będzie możliwy ' . date('d.m.Y', $nastepny) . '.');
+    $wyniki = [];
+    foreach ($statystyki as $k => $v) {
+        $z = max(1, min(10, (int) $v + random_int(-2, 2)));
+        $wyniki[STATYSTYKI[$k] ?? $k] = match (true) {
+            $z <= 2 => 'bardzo słabo',
+            $z <= 4 => 'słabo',
+            $z <= 6 => 'przeciętnie',
+            $z <= 8 => 'dobrze',
+            default => 'wybitnie',
+        };
+    }
+    return ['data' => date('c'), 'wyniki' => $wyniki, 'tester' => $tester];
+}
+
+function oczysc_statystyki($st): array
+{
+    $wynik = [];
+    foreach ((array) $st as $klucz => $v) {
+        if (isset(STATYSTYKI[$klucz])) $wynik[$klucz] = max(1, min(10, (int) $v));
+    }
+    return $wynik;
+}
+
+function kandydaci_puste(): array
+{
+    return ['lista' => []];
+}
+
+// Kandydaci z puli widoczni dla firmy: bez statystyk, z wynikiem testu tej firmy.
+function kandydaci_dla_firmy(array $firma): array
+{
+    $pula = PULA_PROFILU[$firma['profil']] ?? 'ogolna';
+    $wynik = [];
+    foreach (wczytaj('kandydaci', kandydaci_puste())['lista'] as $k) {
+        if (($k['pula'] ?? 'ogolna') !== $pula) continue;
+        $wynik[] = [
+            'id' => $k['id'], 'imie' => $k['imie'], 'funkcja' => $k['funkcja'] ?? '', 'pensja' => $k['pensja'] ?? 0,
+            'opis' => $k['opis'] ?? '', 'testowalny' => !empty($k['statystyki']), 'ocena' => $k['testy'][$firma['id']] ?? null,
+        ];
+    }
+    return $wynik;
 }
 
 // Pozycja katalogu po id albo po nazwie (bez względu na wielkość liter).
@@ -39,8 +104,9 @@ function firmy_puste(): array
 function firma_dane_puste(string $profil): array
 {
     return match ($profil) {
-        'transport' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => []],
-        'komorka' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'misje' => [], 'budynki' => []],
+        'transport' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => []],
+        'komorka' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'misje' => []],
+        'agencja' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'misje' => [], 'cele' => []],
     };
 }
 
@@ -48,14 +114,14 @@ function firma_dane_puste(string $profil): array
 function firma_edytowalne(string $profil): array
 {
     return match ($profil) {
-        'transport' => ['flota', 'zaloga', 'magazyn'],
-        'komorka' => ['flota', 'zaloga', 'magazyn', 'budynki'],
+        'transport', 'komorka', 'agencja' => ['flota', 'zaloga', 'magazyn', 'budynki'],
     };
 }
 
 // Dane firmy dla datapada: bez ukrytych statystyk osób (widzi je tylko MG).
 function firma_dla_gracza(array $f): array
 {
+    $f['dane'] += firma_dane_puste($f['profil']);
     foreach ($f['dane']['zaloga'] as &$z) {
         $z['testowalny'] = !empty($z['statystyki']);
         unset($z['statystyki']);
@@ -293,6 +359,85 @@ function transport_operacja(array &$firma, string $op, array $w, array $u, bool 
             }
             return ['ok' => true];
 
+        case 'budynek_pracownicy':
+            // Prosta obsada: liczba pracowników od 0 do pojemności budynku.
+            foreach ($dane['budynki'] as &$b) {
+                if ($b['id'] === ($w['budynek'] ?? '')) {
+                    $b['pracownicy'] = max(0, min((int) $b['pojemnosc'], (int) ($w['pracownicy'] ?? 0)));
+                    return ['ok' => true];
+                }
+            }
+            blad('Nie ma takiego budynku.', 404);
+
+        case 'budynek_kup':
+            // Zakup z rynku nieruchomości: płaci rachunek firmy, oferta znika z rynku.
+            $oid = (string) ($w['oferta'] ?? '');
+            $fid = $firma['id'];
+            $budynek = zmien('katalog', function (&$kat) use ($oid, $fid, $firma) {
+                foreach ($kat['oferty'] ?? [] as $i => $o) {
+                    if ($o['id'] !== $oid) continue;
+                    $wynik = zmien('bank', fn(&$bank) => bank_obciaz($bank, 'f:' . $fid, (int) $o['cena'], 'Pośrednik nieruchomości', 'Zakup: ' . $o['nazwa'], bank_wlasciciele() + ['f:' . $fid => $firma['nazwa']]), bank_pusty());
+                    if ($wynik !== 'ok') blad('Na rachunku firmy brakuje środków (cena: ' . $o['cena'] . ' kr).');
+                    array_splice($kat['oferty'], $i, 1);
+                    return ['id' => id(), 'nazwa' => $o['nazwa'], 'typ' => $o['typ'] ?? '', 'planeta' => $o['planeta'] ?? '',
+                        'pojemnosc' => (int) ($o['pojemnosc'] ?? 0), 'pracownicy' => 0, 'pensja' => (int) ($o['pensja'] ?? 0),
+                        'menedzer' => '', 'opis' => $o['opis'] ?? ''];
+                }
+                blad('Ta oferta jest już nieaktualna.', 404);
+            });
+            $dane['budynki'][] = $budynek;
+            return ['ok' => true];
+
+        case 'test':
+            foreach ($dane['zaloga'] as &$z) {
+                if ($z['id'] !== ($w['czlonek'] ?? '')) continue;
+                $z['ocena'] = test_ocena($z['statystyki'] ?? [], $z['ocena'] ?? null, $u['postac']);
+                return ['ok' => true, 'ocena' => $z['ocena']];
+            }
+            blad('Nie ma takiej osoby.', 404);
+
+        case 'kandydat_test':
+            $fid = $firma['id'];
+            $pula = PULA_PROFILU[$firma['profil']] ?? 'ogolna';
+            $ocena = zmien('kandydaci', function (&$k) use ($w, $fid, $pula, $u) {
+                foreach ($k['lista'] as &$x) {
+                    if ($x['id'] !== ($w['kandydat'] ?? '') || ($x['pula'] ?? 'ogolna') !== $pula) continue;
+                    $x['testy'][$fid] = test_ocena($x['statystyki'] ?? [], $x['testy'][$fid] ?? null, $u['postac']);
+                    return $x['testy'][$fid];
+                }
+                blad('Ten kandydat nie jest już dostępny.', 404);
+            }, kandydaci_puste());
+            return ['ok' => true, 'ocena' => $ocena];
+
+        case 'kandydat_zatrudnij':
+            $fid = $firma['id'];
+            $pula = PULA_PROFILU[$firma['profil']] ?? 'ogolna';
+            $k = zmien('kandydaci', function (&$kk) use ($w, $pula) {
+                foreach ($kk['lista'] as $i => $x) {
+                    if ($x['id'] !== ($w['kandydat'] ?? '') || ($x['pula'] ?? 'ogolna') !== $pula) continue;
+                    array_splice($kk['lista'], $i, 1);
+                    return $x;
+                }
+                blad('Ten kandydat nie jest już dostępny.', 404);
+            }, kandydaci_puste());
+            $dane['zaloga'][] = [
+                'id' => id(), 'imie' => $k['imie'], 'funkcja' => $k['funkcja'] ?? '', 'pensja' => (int) ($k['pensja'] ?? 0),
+                'statek' => '', 'budynek' => '', 'stan' => 'zdrowy', 'statystyki' => $k['statystyki'] ?? [],
+                'ocena' => $k['testy'][$fid] ?? null, 'kryptonim' => $k['kryptonim'] ?? '', 'gracz' => '',
+            ];
+            return ['ok' => true];
+
+        case 'przelew':
+            // Przelew z rachunku firmy na dowolny rachunek.
+            $numer = bank_numer((string) ($w['numer'] ?? ''));
+            $kwota = bank_kwota($w['kwota'] ?? null);
+            if ($kwota <= 0) blad('Kwota musi być większa od zera.');
+            $tytul = mb_substr(trim((string) ($w['tytul'] ?? '')), 0, 140);
+            $klucz = 'f:' . $firma['id'];
+            $wynik = zmien('bank', fn(&$bank) => bank_przelej($bank, $klucz, $numer, $kwota, $tytul, bank_wlasciciele() + [$klucz => $firma['nazwa']]), bank_pusty());
+            bank_blad_przelewu($wynik);
+            return ['ok' => true];
+
         case 'szlak_zapisz':
         case 'szlak_zglos':
             $s = transport_oczysc_szlak($w['szlak'] ?? []);
@@ -354,7 +499,15 @@ function obsluz_firmy(string $akcja, bool $post): void
                 $rola = firma_rola($f, $u['id']);
                 if (!$rola && $u['rola'] !== 'mg') blad('Brak dostępu do danych tej firmy.', 403);
                 $f['czlonkowie'] = array_map(fn($c) => $c + ['postac' => $postacie[$c['uid']] ?? '?'], $f['czlonkowie']);
-                odpowiedz(['firma' => firma_dla_gracza($f), 'rola' => $rola ?? 'wlasciciel', 'katalog' => katalog()]);
+                $klucz = 'f:' . $f['id'];
+                $finanse = zmien('bank', fn(&$bank) => bank_wyciag($bank, $klucz, 40), bank_pusty());
+                odpowiedz([
+                    'firma' => firma_dla_gracza($f),
+                    'rola' => $rola ?? 'wlasciciel',
+                    'katalog' => katalog(),
+                    'finanse' => $finanse,
+                    'kandydaci' => kandydaci_dla_firmy($f),
+                ]);
             }
             blad('Nie ma takiej firmy.', 404);
 
@@ -369,10 +522,12 @@ function obsluz_firmy(string $akcja, bool $post): void
                     if ($f['id'] !== $fid) continue;
                     $rola = firma_rola($f, $u['id']) ?? ($u['rola'] === 'mg' ? 'wlasciciel' : null);
                     if (!$rola) blad('Brak dostępu do danych tej firmy.', 403);
+                    $f['dane'] += firma_dane_puste($f['profil']); // starsze firmy mogą nie mieć nowych list
                     $moze = in_array($rola, ['wlasciciel', 'menedzer'], true);
                     return match ($f['profil']) {
                         'transport' => transport_operacja($f, $op, $w, $u, $moze),
                         'komorka' => komorka_operacja($f, $op, $w, $u, $moze),
+                        'agencja' => agencja_operacja($f, $op, $w, $u, $moze),
                     };
                 }
                 blad('Nie ma takiej firmy.', 404);
@@ -412,9 +567,45 @@ function obsluz_firmy(string $akcja, bool $post): void
             foreach ($planety as $p) {
                 if (trim((string) ($p['nazwa'] ?? '')) === '') blad('Każda planeta musi mieć nazwę.');
             }
-            zmien('katalog', function (&$k) use ($towary, $planety) {
-                $k = ['towary' => $towary, 'planety' => $planety];
+            // Rynek nieruchomości: oferty budynków do kupienia przez firmy (każda oferta = jeden budynek).
+            $oferty = nadaj_id((array) ($w['oferty'] ?? []));
+            foreach ($oferty as &$o) {
+                if (trim((string) ($o['nazwa'] ?? '')) === '') blad('Każda oferta musi mieć nazwę.');
+                $o['cena'] = max(0, (int) ($o['cena'] ?? 0));
+                $o['pojemnosc'] = max(0, (int) ($o['pojemnosc'] ?? 0));
+                $o['pensja'] = max(0, (int) ($o['pensja'] ?? 0));
+                $o['planeta'] = ($o['planeta'] ?? '') === '' ? '' : katalog_id($planety, (string) $o['planeta'], 'planeta');
+            }
+            unset($o);
+            zmien('katalog', function (&$k) use ($towary, $planety, $oferty) {
+                $k = ['towary' => $towary, 'planety' => $planety, 'oferty' => $oferty];
             });
+            odpowiedz(['ok' => true]);
+
+        case 'mg_kandydaci':
+            wymagaj_mg();
+            odpowiedz(['kandydaci' => wczytaj('kandydaci', kandydaci_puste())['lista']]);
+
+        case 'mg_kandydaci_zapisz':
+            // Pula do zatrudnienia. Wyniki testów („testy”) zostają, edytor ich nie rusza.
+            if (!$post) blad('Zła metoda.', 405);
+            wymagaj_mg();
+            $lista = nadaj_id((array) (wejscie()['kandydaci'] ?? []));
+            foreach ($lista as &$k) {
+                if (trim((string) ($k['imie'] ?? '')) === '') blad('Każdy kandydat musi mieć imię.');
+                $k['pula'] = ($k['pula'] ?? 'ogolna') === 'agencja' ? 'agencja' : 'ogolna';
+                $k['pensja'] = max(0, (int) ($k['pensja'] ?? 0));
+                $k['statystyki'] = oczysc_statystyki($k['statystyki'] ?? []);
+                unset($k['testy']);
+            }
+            unset($k);
+            zmien('kandydaci', function (&$kk) use ($lista) {
+                $testy = array_column($kk['lista'], 'testy', 'id');
+                foreach ($lista as &$k) {
+                    $k['testy'] = $testy[$k['id']] ?? [];
+                }
+                $kk['lista'] = $lista;
+            }, kandydaci_puste());
             odpowiedz(['ok' => true]);
 
         case 'mg_firmy':
@@ -461,12 +652,19 @@ function obsluz_firmy(string $akcja, bool $post): void
                     $z['statek'] = (string) ($z['statek'] ?? '');
                     $z['budynek'] = (string) ($z['budynek'] ?? '');
                     $z['stan'] = in_array($z['stan'] ?? '', STANY_OSOBY, true) ? $z['stan'] : 'zdrowy';
-                    // Ukryte statystyki 1–10 (tylko znane klucze).
-                    $st = [];
-                    foreach ((array) ($z['statystyki'] ?? []) as $klucz => $v) {
-                        if (isset(STATYSTYKI[$klucz])) $st[$klucz] = max(1, min(10, (int) $v));
+                    $z['statystyki'] = oczysc_statystyki($z['statystyki'] ?? []);
+                    $z['kryptonim'] = (string) ($z['kryptonim'] ?? '');
+                    // „gracz”: postać gracza, którą ta osoba jest (login albo nazwa postaci) — wtedy
+                    // wypłaty trafiają na jej rachunek w banku.
+                    $z['gracz'] = (string) ($z['gracz'] ?? '');
+                    if ($z['gracz'] !== '') {
+                        $znaleziony = '';
+                        foreach (uzytkownicy() as $us) {
+                            if (in_array(mb_strtolower($z['gracz']), [mb_strtolower($us['login']), mb_strtolower($us['postac']), $us['id']], true)) $znaleziony = $us['id'];
+                        }
+                        if ($znaleziony === '') blad("Nie ma gracza „{$z['gracz']}”.");
+                        $z['gracz'] = $znaleziony;
                     }
-                    $z['statystyki'] = $st;
                 }
                 unset($z);
                 // Przydział załogi po nazwie statku, kapitan po imieniu.

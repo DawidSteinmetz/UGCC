@@ -35,7 +35,8 @@ js/aplikacje/*.js        aplikacje: holonet, dekoder, harmonogram, frakcja, usta
 api/index.php            jedno API dla wszystkiego (PHP 8.1+, dane w plikach)
 api/bank.php             logika banku (przelewy, odbiorcy, stałe dochody)
 api/firmy.php            firmy (profile), przewozy i wspólny katalog towarów i planet
-api/komorka.php          profil komórki: misje, budynki, testy ukrytych statystyk
+api/komorka.php          profil komórki: misje
+api/agencja.php          profil agencji (ISB): wypłaty dla agentów, teczki i meldunki
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -49,7 +50,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5 | hub, stream, `/recruitment/` |
-| Firma | panel zależny od profilu: przewozy (flota, magazyn, załoga, szlaki) i komórka (to samo plus budynki i misje) | nowe |
+| Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
 | Harmonogram | kalendarz miesięczny, deklaracje obecności postaci (jedna na dzień) | `/calendar/` |
@@ -88,6 +89,23 @@ w `js/system.js` i do `PLIKI` w `sw.js`. Wzorem może być `ustawienia.js`, najp
 - Członkowie firmy: **właściciel** i **menedżer** mogą zmieniać dane, **pracownik** tylko podgląda.
   Postać należąca do jednej firmy trafia od razu do jej panelu.
 
+### Wspólne dla wszystkich profili
+
+- **Rachunek firmy** w banku (klucz `f:<id firmy>`): zakładka Finanse pokazuje saldo, numer
+  i historię. Właściciel i menedżer robią z niego przelewy. Na rachunek firmy można przelać
+  pieniądze zwykłym przelewem z aplikacji Bank, a MG może go zasilić (Bank → operacja
+  jednorazowa) albo ustawić mu stały miesięczny dochód.
+- **Budynki i rynek nieruchomości:** MG wystawia oferty (Katalog → Rynek nieruchomości),
+  firma kupuje je z własnego rachunku, a kupiona oferta znika z rynku. Budynek ma pojemność,
+  liczbę pracowników (gracz zatrudnia i zwalnia) i kierownika z załogi.
+- **Ukryte statystyki** osób (1–10): pilotaż, dowodzenie, taktyka, zarządzanie, logistyka,
+  lojalność, konspiracja. Nigdy nie trafiają do datapada. **Test** daje zgrubną ocenę słowną
+  (prawdziwa wartość ±2) i można go powtórzyć **raz na 30 dni** dla tej samej osoby.
+- **Pula kandydatów** (panel MG → Rekrutacja): osoby do zatrudnienia z ukrytymi statystykami.
+  Firma może je testować (każda firma osobno, raz w miesiącu) i zatrudnić. Zatrudniony znika
+  z puli i przechodzi do załogi razem z wynikiem testu. Pule: `ogolna` (przewozy i komórki)
+  i `agencja` (agencja handlowa).
+
 ### Profil: przewozy
 
 - **Flota:** statki z ładownością (t), stanem, położeniem i kapitanem. Gracz może zmienić nazwę.
@@ -103,8 +121,8 @@ w `js/system.js` i do `PLIKI` w `sw.js`. Wzorem może być `ustawienia.js`, najp
   ponownie, na aktualnych magazynach.
 - MG ustawia flotę, załogę i magazyn w edytorze JSON. Planety, towary, statki i osoby wpisuje
   po nazwie. Zapis w edytorze nie rusza kursów graczy.
-- Na razie bez pieniędzy: firma nie ma własnego rachunku, pensje są tylko informacją, a kurs
-  nie kosztuje paliwa. To naturalne następne kroki razem z giełdą i mapą.
+- Pensje i koszt obsady budynków są na razie tylko informacją (nic nie schodzi automatycznie
+  z rachunku), a kurs nie kosztuje paliwa. To naturalne następne kroki razem z giełdą i mapą.
 
 ### Profil: komórka
 
@@ -119,15 +137,27 @@ dodatki (`js/aplikacje/firma/komorka.js`, `api/komorka.php`):
   - zmiany w magazynach (łup na plus, straty na minus);
   - gdzie statki kończą misję;
   - raport, który gracze czytają w zakładce Misje.
-- **Budynki** (np. kopalnia): typ, planeta, pojemność, liczba pracowników (gracz zatrudnia
-  i zwalnia w granicach pojemności), koszt obsady i **kierownik**. Kierownika wyznacza się
-  w zakładce Załoga: przydział do budynku, potem „Na kierownika”.
-- **Ukryte statystyki** osób (1–10): pilotaż, dowodzenie, taktyka, zarządzanie, logistyka,
-  lojalność. Ustawia je MG w edytorze JSON, a do datapada nigdy nie trafiają. Gracz robi
-  **test** (raz na dobę na osobę) i dostaje zgrubną ocenę słowną: prawdziwa wartość ±2 opisana
-  jako „bardzo słabo … wybitnie”, więc dwa testy mogą się różnić. Ostatni wynik jest widoczny
-  przy osobie. MG widzi prawdziwe liczby w edytorze i przy rozliczaniu misji.
 - Ranna osoba nie poleci na misję. Wyleczenie: MG zmienia jej `stan` na `zdrowy` w edytorze.
+
+### Profil: agencja handlowa (przykrywka ISB)
+
+Wewnętrzne narzędzie ISB do kontaktu, kontroli i rozliczeń z nielegałami i szpiegami.
+W datapadzie wygląda jak zwykła agencja handlowa i nigdzie nie pada słowo „ISB”. Nazwę firmy
+wybiera MG (np. „Biuro Analiz Rynkowych Sektora”). Zakładki:
+
+- **Kontrahenci:** agenci z kryptonimami i ukrytymi statystykami (test jak u kapitanów
+  i kierowników) oraz kandydaci do współpracy z puli `agencja`. Przycisk **Rozlicz** wypłaca
+  pieniądze z rachunku agencji. Jeśli agent jest postacią gracza (pole `gracz` w edytorze MG),
+  przelew trafia na jego rachunek z neutralnym tytułem, np. „Prowizja handlowa”. W przeciwnym
+  razie jest to wypłata gotówkowa.
+- **Statki:** flota agentów.
+- **Kontrakty:** misje handlowe. To misje z komórki z dodatkowymi **warunkami oficjalnymi**
+  (legendą: ładunek, trasa, odbiorca) i **uwagami poufnymi** (prawdziwe zadanie). MG zatwierdza
+  je i rozlicza ręcznie, z dodatkowymi wynikami: agent **spalony** albo **zatrzymany**, statek
+  **przejęty**.
+- **Monitoring:** teczki obserwowanych obiektów (osoby, statki, lokale). MG dopisuje do nich
+  meldunki z terenu (panel MG → Firmy → Teczki w obserwacji).
+- **Rozliczenia:** rachunek agencji (to samo co Finanse w innych profilach).
 
 ## Konta i bezpieczeństwo
 

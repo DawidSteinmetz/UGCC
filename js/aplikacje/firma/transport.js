@@ -8,10 +8,17 @@
 //   f.wczytaj()                      świeże dane firmy
 //
 // Inne profile (np. komórka) używają tego samego panelu i dokładają własne zakładki:
-//   uruchom(obszar, f, { nazwyZakladek, zakladki: { id: (p) => element } })
+//   uruchom(obszar, f, {
+//     nazwyZakladek: [[id, nazwa], ...]   dodatkowe zakładki na końcu
+//     kolejnosc:     [[id, nazwa], ...]   albo pełny zestaw i kolejność zakładek (zastępuje domyślny)
+//     zakladki:      { id: (p) => element }
+//     akcjeOsoby:    (osoba, p) => element   dodatkowe przyciski przy osobie w zakładce Załoga
+//     tekst:         { zalogaPusta, ... }    podmiana napisów
+//   })
 // gdzie `p` to wspólne narzędzia panelu (zobacz obiekt `panel` niżej).
 
 import { h, wyczysc } from '../../rdzen/narzedzia.js';
+import { api } from '../../rdzen/api.js';
 
 const STATUS_KURSU = {
   szkic: ['Szkic', ''],
@@ -33,8 +40,11 @@ export default {
   nazwa: 'Przewozy',
 
   uruchom(obszar, f, rozszerzenie = {}) {
-    let zakladka = 'flota';
     let dane = f.firma.dane;
+    let kandydaci = f.kandydaci || [];
+    let finanse = f.finanse;
+    let oferty = f.katalog.oferty || [];
+    const tekst = { zalogaPusta: 'Brak personelu.', kandydaci: 'Pula kandydatów', ...(rozszerzenie.tekst || {}) };
     let podwidok = null; // otwarty edytor (kursu, misji...) zamiast zakładki
     let licznikSprawdzania = null;
 
@@ -47,6 +57,9 @@ export default {
     async function odswiez() {
       const d = await f.wczytaj();
       dane = d.firma.dane;
+      kandydaci = d.kandydaci || [];
+      finanse = d.finanse;
+      oferty = d.katalog.oferty || [];
       rysuj();
     }
 
@@ -70,7 +83,9 @@ export default {
     const panel = {
       f,
       get dane() { return dane; },
+      get finanse() { return finanse; },
       planety, towary, nazwaPlanety, wykonaj, pokaz, h, wyczysc,
+      wstaw: (el) => wyczysc(komunikat).append(el), // okienko (np. formularz) nad treścią zakładki
       rysuj: () => rysuj(),
       odswiez: () => odswiez(),
       otworz: (fn) => { podwidok = fn; rysuj(); },
@@ -78,9 +93,13 @@ export default {
       przebuduj: () => { if (podwidok) wyczysc(tresc).append(podwidok()); },
     };
 
-    const ZAKLADKI = { flota, magazyn, zaloga, szlaki };
-    const NAZWY = [['flota', 'Flota'], ['magazyn', 'Magazyn'], ['zaloga', 'Załoga'], ['szlaki', 'Szlaki'], ...(rozszerzenie.nazwyZakladek || [])];
+    const ZAKLADKI = { flota, magazyn, zaloga, szlaki, budynki, finanse: zakladkaFinansow };
+    const NAZWY = rozszerzenie.kolejnosc || [
+      ['flota', 'Flota'], ['magazyn', 'Magazyn'], ['zaloga', 'Załoga'], ['szlaki', 'Szlaki'], ['budynki', 'Budynki'],
+      ...(rozszerzenie.nazwyZakladek || []), ['finanse', 'Finanse'],
+    ];
     for (const [id, fn] of Object.entries(rozszerzenie.zakladki || {})) ZAKLADKI[id] = () => fn(panel);
+    let zakladka = NAZWY[0][0];
 
     function rysuj() {
       wyczysc(zakladki).append(...NAZWY.map(([k, n]) =>
@@ -146,7 +165,6 @@ export default {
     // Załoga / personel. W profilach z budynkami osobę można przydzielić także do budynku
     // (i zrobić kierownikiem). Osoby z ukrytymi cechami („testowalny”) można przetestować.
     function zaloga() {
-      if (!dane.zaloga.length) return h('div.panel', h('div.pusto', 'Brak personelu.'));
       const budynki = dane.budynki || [];
       const styl = 'min-height:36px;background:transparent;border:1px solid var(--linia);border-radius:4px;padding:0 6px';
       const wartosc = (z) => (z.statek ? 's:' + z.statek : z.budynek ? 'b:' + z.budynek : '');
@@ -183,22 +201,124 @@ export default {
       for (const z of dane.zaloga) {
         const znaczek = kapitan(z) ? 'KAPITAN' : kierownik(z) ? 'KIEROWNIK' : '';
         wiersze.push(h('tr',
-          h('td', z.imie, znaczek ? h('span.poziom', '  ' + znaczek) : null,
-            z.stan && z.stan !== 'zdrowy' ? h('div.maly-tekst.' + (z.stan === 'ranny' ? 'status-nieobecny' : 'status-niepewny'), z.stan) : null),
+          h('td', z.kryptonim ? h('span.poziom', z.kryptonim + '  ') : null, z.imie, znaczek ? h('span.poziom', '  ' + znaczek) : null,
+            z.stan && z.stan !== 'zdrowy' ? h('div.maly-tekst.' + (z.stan === 'na misji' ? 'status-niepewny' : 'status-nieobecny'), z.stan) : null),
           h('td.slaby', z.funkcja || '—'),
           h('td.slaby', z.pensja ? `${z.pensja} kr` : '—'),
           h('td', f.moze ? wybor(z) : opisPrzydzialu(z)),
-          h('td', h('div.rzad', awans(z), test(z)))));
+          h('td', h('div.rzad', awans(z), test(z), rozszerzenie.akcjeOsoby ? rozszerzenie.akcjeOsoby(z, panel) : null))));
         // Wynik ostatniego testu: zgrubne oceny cech.
-        if (z.ocena?.wyniki) {
-          wiersze.push(h('tr', h('td', { colspan: 5, style: 'padding-top:0' },
-            h('div.slaby.maly-tekst', `Ocena z ${new Date(z.ocena.data).toLocaleDateString('pl-PL')} (${z.ocena.tester}): `,
-              Object.entries(z.ocena.wyniki).map(([k, v], i) => [i ? ' · ' : '', `${k}: `, h('span', { style: 'color:var(--tekst)' }, v)])))));
-        }
+        if (z.ocena?.wyniki) wiersze.push(h('tr', h('td', { colspan: 5, style: 'padding-top:0' }, ocenaTekst(z.ocena))));
       }
-      return h('div.panel', h('table.tabela',
-        h('thead', h('tr', h('th', 'Imię'), h('th', 'Funkcja'), h('th', 'Pensja'), h('th', 'Przydział'), h('th', ''))),
-        h('tbody', wiersze)));
+      return h('div',
+        h('div.panel', dane.zaloga.length
+          ? h('table.tabela',
+            h('thead', h('tr', h('th', 'Imię'), h('th', 'Funkcja'), h('th', 'Pensja'), h('th', 'Przydział'), h('th', ''))),
+            h('tbody', wiersze))
+          : h('div.pusto', tekst.zalogaPusta)),
+        pulaKandydatow());
+    }
+
+    // Kandydaci do zatrudnienia: można ich przetestować (raz w miesiącu) i przyjąć.
+    function pulaKandydatow() {
+      if (!kandydaci.length) return null;
+      return h('div.panel',
+        h('h2', tekst.kandydaci),
+        h('ul.lista', kandydaci.map((k) => h('li',
+          h('div.rzad',
+            h('div.rozpycha', h('div', k.imie), h('div.slaby.maly-tekst', [k.funkcja, k.pensja ? `oczekuje ${k.pensja} kr / mies.` : ''].filter(Boolean).join(' · '))),
+            f.moze && k.testowalny ? h('button.przycisk.drugi.maly', { onclick: () => wykonaj('kandydat_test', { kandydat: k.id }, `Test przeprowadzony: ${k.imie}.`) }, 'Test') : null,
+            f.moze ? h('button.przycisk.maly', { onclick: () => wykonaj('kandydat_zatrudnij', { kandydat: k.id }, `${k.imie} dołącza do zespołu.`) }, 'Zatrudnij') : null),
+          k.opis ? h('div.slaby.maly-tekst', { style: 'margin-top:4px' }, k.opis) : null,
+          ocenaTekst(k.ocena)))));
+    }
+
+    function ocenaTekst(o) {
+      if (!o?.wyniki) return null;
+      return h('div.slaby.maly-tekst', { style: 'margin-top:4px' }, `Ocena z ${new Date(o.data).toLocaleDateString('pl-PL')} (${o.tester}): `,
+        Object.entries(o.wyniki).map(([k, v], i) => [i ? ' · ' : '', `${k}: `, h('span', { style: 'color:var(--tekst)' }, v)]));
+    }
+
+    // ---------- budynki i rynek nieruchomości ----------
+
+    function budynki() {
+      const lista = dane.budynki || [];
+      const karty = lista.map((b) => {
+        const kier = dane.zaloga.find((z) => z.id === b.menedzer);
+        const zmien = (o) => wykonaj('budynek_pracownicy', { budynek: b.id, pracownicy: b.pracownicy + o });
+        const wiersz = (k, v) => h('tr', h('th', k), h('td', v));
+        return h('div.panel',
+          h('h2', { style: 'margin:0' }, b.nazwa),
+          h('div.slaby.maly-tekst', { style: 'margin:4px 0 10px' }, [b.typ, b.planeta ? nazwaPlanety(b.planeta) : ''].filter(Boolean).join(' · ')),
+          h('table.tabela',
+            wiersz('Kierownik', kier ? kier.imie : h('span.status-nieobecny', 'brak')),
+            wiersz('Pracownicy', f.moze
+              ? h('span.licznik',
+                h('button', { onclick: () => zmien(-1), disabled: b.pracownicy <= 0, 'aria-label': 'Zwolnij' }, '−'),
+                h('span', `${b.pracownicy} / ${b.pojemnosc}`),
+                h('button', { onclick: () => zmien(1), disabled: b.pracownicy >= b.pojemnosc, 'aria-label': 'Zatrudnij' }, '+'))
+              : `${b.pracownicy} / ${b.pojemnosc}`),
+            b.pensja ? wiersz('Koszt obsady', `${b.pracownicy * b.pensja} kr / mies.`) : null),
+          b.opis ? h('p.slaby.maly-tekst', b.opis) : null,
+          !kier && f.moze ? h('p.slaby.maly-tekst', 'Kierownika wyznaczysz w zakładce Załoga: przydziel osobę do budynku i wybierz „Na kierownika”.') : null);
+      });
+      const saldo = finanse?.konto?.saldo ?? 0;
+      return h('div',
+        lista.length ? h('div.karty', karty) : h('div.panel', h('div.pusto', 'Brak budynków.')),
+        oferty.length ? h('div.panel', { style: 'margin-top:14px' },
+          h('h2', 'Rynek nieruchomości'),
+          h('div.slaby.maly-tekst', { style: 'margin-bottom:8px' }, `Środki na rachunku: ${saldo} kr`),
+          h('ul.lista', oferty.map((o) => h('li', h('div.rzad',
+            h('div.rozpycha', h('div', o.nazwa), h('div.slaby.maly-tekst', [o.typ, o.planeta ? nazwaPlanety(o.planeta) : '', o.pojemnosc ? `do ${o.pojemnosc} pracowników` : '', o.opis].filter(Boolean).join(' · '))),
+            h('span', `${o.cena} kr`),
+            f.moze ? h('button.przycisk.maly', {
+              disabled: saldo < o.cena,
+              onclick: () => { if (confirm(`Kupić „${o.nazwa}” za ${o.cena} kr z rachunku firmy?`)) wykonaj('budynek_kup', { oferta: o.id }, `Zakupiono: ${o.nazwa}.`); },
+            }, 'Kup') : null))))) : null);
+    }
+
+    // ---------- finanse: rachunek firmy ----------
+
+    function zakladkaFinansow() {
+      if (!finanse) return h('div.panel', h('div.pusto', 'Brak dostępu do rachunku.'));
+      const { konto, transakcje } = finanse;
+      const kr = (n) => `${Number(n).toLocaleString('pl-PL')} kr`;
+      const numer = h('input', { inputmode: 'numeric', placeholder: '0000-0000-0000', maxlength: 14 });
+      numer.addEventListener('input', () => { numer.value = numer.value.replace(/\D/g, '').slice(0, 12).replace(/(\d{4})(?=\d)/g, '$1-'); });
+      const kwota = h('input', { type: 'number', min: 1, step: 1 });
+      const tytul = h('input', { maxlength: 140 });
+      const kto = h('div.slaby.maly-tekst', { style: 'min-height:1.4em' });
+      numer.addEventListener('input', async () => {
+        kto.textContent = '';
+        if (numer.value.replace(/\D/g, '').length !== 12) return;
+        try { kto.textContent = 'Właściciel: ' + (await api('bank_sprawdz', undefined, { n: numer.value })).postac; } catch (e) { kto.textContent = e.message; }
+      });
+      return h('div',
+        h('div.panel.bank-karta',
+          h('div.slaby.maly-tekst', 'Rachunek firmy'),
+          h('div.bank-saldo' + (konto.saldo < 0 ? '.ujemne' : ''), kr(konto.saldo)),
+          h('div.slaby.maly-tekst', 'Numer ', h('span.bank-numer', konto.numer))),
+        f.moze ? h('form.panel', {
+          onsubmit: async (e) => {
+            e.preventDefault();
+            const k = Math.floor(Number(kwota.value));
+            if (!(k > 0)) return pokaz('Podaj kwotę większą od zera.');
+            if (!confirm(`Przelać ${kr(k)} z rachunku firmy?`)) return;
+            await wykonaj('przelew', { numer: numer.value, kwota: k, tytul: tytul.value }, `Przelew ${kr(k)} wykonany.`);
+          },
+        },
+        h('h2', 'Przelew z rachunku firmy'),
+        h('div.pole', h('label', 'Rachunek odbiorcy'), numer, kto),
+        h('div.dwie-kolumny', { style: 'grid-template-columns:1fr 2fr' }, h('div.pole', h('label', 'Kwota'), kwota), h('div.pole', h('label', 'Tytuł'), tytul)),
+        h('button.przycisk', { type: 'submit' }, 'Wyślij')) : null,
+        h('div.panel', h('h2', 'Historia rachunku'),
+          transakcje.length ? h('ul.lista', transakcje.map((t) => {
+            const wplyw = t.kierunek === 'wplyw';
+            return h('li', h('div.rzad',
+              h('div.rozpycha', h('div', (wplyw ? 'Od: ' + t.od_nazwa : 'Do: ' + t.do_nazwa)),
+                h('div.slaby.maly-tekst', [t.tytul, new Date(t.czas).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })].filter(Boolean).join(' · '))),
+              h('span' + (wplyw ? '.bank-plus' : '.bank-minus'), (wplyw ? '+' : '−') + kr(t.kwota))));
+          })) : h('div.pusto', 'Brak operacji.')));
     }
 
     // ---------- szlaki ----------

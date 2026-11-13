@@ -54,6 +54,69 @@ function bank_postacie(): array
     return $p;
 }
 
+// Właściciele rachunków: postacie (klucz = id użytkownika) i firmy (klucz = „f:” + id firmy).
+function bank_wlasciciele(): array
+{
+    $w = bank_postacie();
+    foreach (wczytaj('firmy', ['firmy' => []])['firmy'] as $f) {
+        $w['f:' . $f['id']] = $f['nazwa'];
+    }
+    return $w;
+}
+
+// Przelew między rachunkami. Zwraca 'ok', 'brak' (nie ma odbiorcy), 'wlasne' albo 'srodki'.
+function bank_przelej(array &$bank, string $od, string $numer, int $kwota, string $tytul, array $nazwy): string
+{
+    $nadawca = bank_konto($bank, $od);
+    $do = bank_uid_po_numerze($bank, $numer);
+    if (!$do || !isset($nazwy[$do])) return 'brak';
+    if ($do === $od) return 'wlasne';
+    if ($nadawca['saldo'] < $kwota) return 'srodki';
+    $bank['konta'][$od]['saldo'] -= $kwota;
+    $bank['konta'][$do]['saldo'] += $kwota;
+    bank_zapisz_transakcje($bank, [
+        'typ' => 'przelew',
+        'od' => $od, 'od_nazwa' => $nazwy[$od] ?? '?', 'od_numer' => $nadawca['numer'],
+        'do' => $do, 'do_nazwa' => $nazwy[$do], 'do_numer' => $numer,
+        'kwota' => $kwota,
+        'tytul' => $tytul,
+    ]);
+    return 'ok';
+}
+
+// Wypłata z rachunku „na zewnątrz” (zakup, gotówka dla kogoś bez rachunku). Zwraca 'ok' albo 'srodki'.
+function bank_obciaz(array &$bank, string $od, int $kwota, string $odbiorca, string $tytul, array $nazwy): string
+{
+    $konto = bank_konto($bank, $od);
+    if ($konto['saldo'] < $kwota) return 'srodki';
+    $bank['konta'][$od]['saldo'] -= $kwota;
+    bank_zapisz_transakcje($bank, [
+        'typ' => 'wyplata',
+        'od' => $od, 'od_nazwa' => $nazwy[$od] ?? '?', 'od_numer' => $konto['numer'],
+        'do' => null, 'do_nazwa' => $odbiorca, 'do_numer' => '',
+        'kwota' => $kwota,
+        'tytul' => $tytul,
+    ]);
+    return 'ok';
+}
+
+// Saldo, numer i historia jednego rachunku (np. firmy).
+function bank_wyciag(array &$bank, string $klucz, int $ile = BANK_HISTORIA): array
+{
+    $konto = bank_konto($bank, $klucz);
+    $t = array_values(array_filter($bank['transakcje'], fn($x) => $x['od'] === $klucz || $x['do'] === $klucz));
+    usort($t, fn($a, $b) => strtotime($b['czas']) <=> strtotime($a['czas']));
+    $t = array_map(fn($x) => $x + ['kierunek' => $x['do'] === $klucz ? 'wplyw' : 'wyplyw'], array_slice($t, 0, $ile));
+    return ['konto' => $konto, 'transakcje' => $t];
+}
+
+function bank_blad_przelewu(string $wynik): void
+{
+    if ($wynik === 'brak') blad('Rachunek o tym numerze nie istnieje.', 404);
+    if ($wynik === 'wlasne') blad('Nie można wysłać przelewu na ten sam rachunek.');
+    if ($wynik === 'srodki') blad('Niewystarczające środki na rachunku.');
+}
+
 function bank_zapisz_transakcje(array &$bank, array $t): void
 {
     // Podany „czas” (np. dzień należnej wypłaty) ma pierwszeństwo przed chwilą zapisu.
@@ -63,7 +126,7 @@ function bank_zapisz_transakcje(array &$bank, array $t): void
 // Wypłata zaległych stałych dochodów, aż do bieżącego miesiąca.
 function bank_rozlicz_dochody(array &$bank): void
 {
-    $postacie = bank_postacie();
+    $postacie = bank_wlasciciele();
     $teraz = new DateTimeImmutable('now');
     foreach ($bank['dochody'] as &$d) {
         if (!isset($postacie[$d['uid']])) {
@@ -139,9 +202,9 @@ function obsluz_bank(string $akcja, bool $post): void
             $numer = bank_numer((string) ($_GET['n'] ?? ''));
             $bank = wczytaj('bank', bank_pusty());
             $uid = bank_uid_po_numerze($bank, $numer);
-            $postacie = bank_postacie();
-            if (!$uid || !isset($postacie[$uid])) blad('Rachunek o tym numerze nie istnieje.', 404);
-            odpowiedz(['numer' => $numer, 'postac' => $postacie[$uid], 'wlasny' => $uid === $u['id']]);
+            $nazwy = bank_wlasciciele();
+            if (!$uid || !isset($nazwy[$uid])) blad('Rachunek o tym numerze nie istnieje.', 404);
+            odpowiedz(['numer' => $numer, 'postac' => $nazwy[$uid], 'wlasny' => $uid === $u['id']]);
 
         case 'bank_przelew':
             if (!$post) blad('Zła metoda.', 405);
@@ -151,23 +214,12 @@ function obsluz_bank(string $akcja, bool $post): void
             $kwota = bank_kwota($w['kwota'] ?? null);
             $tytul = pole('tytul', 140);
             if ($kwota <= 0) blad('Kwota musi być większa od zera.');
-            $postacie = bank_postacie();
+            $postacie = bank_wlasciciele();
             $wynik = zmien('bank', function (&$bank) use ($u, $numer, $kwota, $tytul, $postacie, $w) {
                 bank_rozlicz_dochody($bank);
-                $nadawca = bank_konto($bank, $u['id']);
+                $wynik = bank_przelej($bank, $u['id'], $numer, $kwota, $tytul, $postacie);
+                if ($wynik !== 'ok') return $wynik;
                 $uid = bank_uid_po_numerze($bank, $numer);
-                if (!$uid || !isset($postacie[$uid])) return 'brak';
-                if ($uid === $u['id']) return 'wlasne';
-                if ($nadawca['saldo'] < $kwota) return 'srodki';
-                $bank['konta'][$u['id']]['saldo'] -= $kwota;
-                $bank['konta'][$uid]['saldo'] += $kwota;
-                bank_zapisz_transakcje($bank, [
-                    'typ' => 'przelew',
-                    'od' => $u['id'], 'od_nazwa' => $postacie[$u['id']], 'od_numer' => $nadawca['numer'],
-                    'do' => $uid, 'do_nazwa' => $postacie[$uid], 'do_numer' => $numer,
-                    'kwota' => $kwota,
-                    'tytul' => $tytul,
-                ]);
                 // Opcjonalnie od razu zapisz odbiorcę na liście stałych.
                 if (!empty($w['zapisz'])) {
                     $lista = $bank['odbiorcy'][$u['id']] ?? [];
@@ -189,7 +241,7 @@ function obsluz_bank(string $akcja, bool $post): void
             $u = wymagaj_logowania();
             $numer = bank_numer(pole('numer', 20));
             $nazwa = pole('nazwa', 60);
-            $postacie = bank_postacie();
+            $postacie = bank_wlasciciele();
             $wynik = zmien('bank', function (&$bank) use ($u, $numer, $nazwa, $postacie) {
                 $uid = bank_uid_po_numerze($bank, $numer);
                 if (!$uid || !isset($postacie[$uid])) return 'brak';
@@ -226,6 +278,11 @@ function obsluz_bank(string $akcja, bool $post): void
                     $k = bank_konto($bank, $x['id']);
                     $konta[] = ['uid' => $x['id'], 'postac' => $x['postac'], 'frakcja' => $x['frakcja'], 'numer' => $k['numer'], 'saldo' => $k['saldo']];
                 }
+                // Rachunki firm (klucz „f:” + id firmy).
+                foreach (wczytaj('firmy', ['firmy' => []])['firmy'] as $f) {
+                    $k = bank_konto($bank, 'f:' . $f['id']);
+                    $konta[] = ['uid' => 'f:' . $f['id'], 'postac' => $f['nazwa'], 'frakcja' => 'firma', 'numer' => $k['numer'], 'saldo' => $k['saldo']];
+                }
                 return [
                     'konta' => $konta,
                     'dochody' => $bank['dochody'],
@@ -245,8 +302,8 @@ function obsluz_bank(string $akcja, bool $post): void
             $uid = pole('uid', 32);
             $kwota = bank_kwota($w['kwota'] ?? null);
             if ($kwota === 0) blad('Kwota nie może być zerem.');
-            $postacie = bank_postacie();
-            if (!isset($postacie[$uid])) blad('Nie ma takiej postaci.', 404);
+            $postacie = bank_wlasciciele();
+            if (!isset($postacie[$uid])) blad('Nie ma takiego rachunku.', 404);
             $zrodlo = pole('zrodlo', 80);
             $tytul = pole('tytul', 140);
             zmien('bank', function (&$bank) use ($uid, $kwota, $zrodlo, $tytul, $postacie) {
@@ -267,7 +324,7 @@ function obsluz_bank(string $akcja, bool $post): void
             wymagaj_mg();
             $w = wejscie();
             $uid = pole('uid', 32);
-            if (!isset(bank_postacie()[$uid])) blad('Nie ma takiej postaci.', 404);
+            if (!isset(bank_wlasciciele()[$uid])) blad('Nie ma takiego rachunku.', 404);
             $kwota = bank_kwota($w['kwota'] ?? null);
             if ($kwota === 0) blad('Kwota nie może być zerem.');
             $dzien = max(1, min(28, (int) ($w['dzien'] ?? 1)));
