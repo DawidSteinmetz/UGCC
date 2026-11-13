@@ -24,6 +24,7 @@ const STATUS_KURSU = {
   szkic: ['Szkic', ''],
   zgloszony: ['Czeka na zgodę kontroli ruchu', 'status-niepewny'],
   w_realizacji: ['W trasie', 'status-dostepny'],
+  wstrzymany: ['Wstrzymany', 'status-nieobecny'],
   zakonczony: ['Zakończony', 'slaby'],
   odrzucony: ['Odrzucony', 'status-nieobecny'],
 };
@@ -44,6 +45,7 @@ export default {
     let kandydaci = f.kandydaci || [];
     let finanse = f.finanse;
     let oferty = f.katalog.oferty || [];
+    let ceny = f.ceny || {}; // dzisiejsze kursy: [planeta][towar] = { kupno, sprzedaz }
     const tekst = { zalogaPusta: 'Brak personelu.', kandydaci: 'Pula kandydatów', ...(rozszerzenie.tekst || {}) };
     let podwidok = null; // otwarty edytor (kursu, misji...) zamiast zakładki
     let licznikSprawdzania = null;
@@ -58,6 +60,7 @@ export default {
       const d = await f.wczytaj();
       dane = d.firma.dane;
       kandydaci = d.kandydaci || [];
+      ceny = d.ceny || {};
       finanse = d.finanse;
       oferty = d.katalog.oferty || [];
       rysuj();
@@ -333,29 +336,46 @@ export default {
             const [opis, klasa] = STATUS_KURSU[s.status] || [s.status, ''];
             return h('li', h('div.rzad',
               h('div.rozpycha',
-                h('div', s.nazwa),
+                h('div', s.nazwa, s.auto ? h('span.poziom', `  AUTOMAT · co ${s.co_dni} dni`) : null),
                 h('div.slaby.maly-tekst', `${statek(s.statek)} · ${s.przystanki.map((p) => nazwaPlanety(p.planeta)).join(' → ')}`),
+                ostatniObieg(s),
                 s.uwagi ? h('div.maly-tekst', { style: 'color:var(--akcent-2)' }, 'Kontrola ruchu: ' + s.uwagi) : null),
               h('span.maly-tekst' + (klasa ? '.' + klasa : ''), opis),
+              f.moze && s.auto && s.status === 'wstrzymany' ? h('button.przycisk.maly', { onclick: () => wykonaj('szlak_wznow', { id: s.id }, 'Automat wznowiony.') }, 'Wznów') : null,
+              f.moze && s.auto && ['w_realizacji', 'wstrzymany'].includes(s.status)
+                ? h('button.przycisk.zly.maly', { onclick: () => { if (confirm('Zakończyć kurs automatyczny? Statek wróci do dyspozycji.')) wykonaj('szlak_zatrzymaj', { id: s.id }, 'Automat zatrzymany.'); } }, 'Zatrzymaj') : null,
               h('button.przycisk.drugi.maly', { onclick: () => { const k = JSON.parse(JSON.stringify(s)); panel.otworz(() => edytorKursu(k)); } },
                 f.moze && ['szkic', 'odrzucony'].includes(s.status) ? 'Edytuj' : 'Podgląd')));
           })))
           : h('div.panel', h('div.pusto', 'Brak zaplanowanych kursów.')));
     }
 
+    // Wynik ostatniego obiegu (i kiedy następny) — pod nazwą kursu na liście.
+    function ostatniObieg(s) {
+      const d = s.dziennik?.[s.dziennik.length - 1];
+      const nastepny = s.auto && s.status === 'w_realizacji' && s.nastepny ? ` · następny obieg ${new Date(s.nastepny).toLocaleDateString('pl-PL')}` : '';
+      if (!d) return nastepny ? h('div.slaby.maly-tekst', nastepny.slice(3)) : null;
+      return h('div.maly-tekst',
+        h('span.slaby', `Obieg ${new Date(d.data).toLocaleDateString('pl-PL')}: `),
+        d.ok ? h('span' + (d.zysk >= 0 ? '.bank-plus' : '.status-nieobecny'), `${d.zysk >= 0 ? '+' : ''}${d.zysk} kr`) : h('span.status-nieobecny', 'nieudany'),
+        h('span.slaby', nastepny));
+    }
+
     function nowyKurs() {
       const s = dane.flota.find((x) => x.stan === 'sprawny') || dane.flota[0];
       return {
-        id: '', nazwa: '', statek: s?.id || '', notatka: '', status: 'szkic',
+        id: '', nazwa: '', statek: s?.id || '', notatka: '', status: 'szkic', auto: false, co_dni: 7,
         przystanki: [{ planeta: s?.lokalizacja || '', operacje: [] }, { planeta: '', operacje: [] }],
       };
     }
 
-    // Edytor planu kursu: statek, przystanki, a na każdym rozładunek / załadunek.
+    // Edytor planu kursu: statek, przystanki, a na każdym operacje magazynowe (załaduj / rozładuj)
+    // albo handlowe na lokalnym rynku (kup / sprzedaj, po dzisiejszym kursie giełdowym).
     function edytorKursu(k) {
       const edytowalny = f.moze && ['szkic', 'odrzucony'].includes(k.status);
       const problemy = h('div');
       const podsumowanie = h('div');
+      const wycena = h('div');
       const wyb = (opcje, wartosc, zmiana, pusta = null) => {
         const s = h('select', { disabled: !edytowalny, style: 'min-height:40px;background:rgba(0,0,0,.35);border:1px solid var(--linia);border-radius:4px;padding:0 8px' },
           pusta ? h('option', { value: '' }, pusta) : null,
@@ -371,7 +391,9 @@ export default {
         clearTimeout(licznikSprawdzania);
         licznikSprawdzania = setTimeout(async () => {
           try {
-            const { problemy: p } = await f.sprawdzSzlak(k);
+            const { problemy: p, wycena: w } = await f.sprawdzSzlak(k);
+            pokazWycene(w);
+            if (!edytowalny) return wyczysc(problemy); // podgląd zgłoszonego / trwającego kursu: bez kontroli planu
             wyczysc(problemy).append(p.length
               ? h('div.komunikat.blad', h('div', 'Kontrola planu:'), h('ul', { style: 'margin:6px 0 0;padding-left:18px' }, p.map((x) => h('li', x))))
               : h('div.komunikat.ok', 'Plan kursu poprawny.'));
@@ -382,14 +404,24 @@ export default {
       };
       const przebuduj = () => panel.przebuduj();
 
+      // Wycena po kursie giełdowym. Faktyczny wynik zależy od kapitana i od kursu w dniu obiegu.
+      function pokazWycene(w) {
+        if (!w || (!w.koszt && !w.przychod)) return wyczysc(wycena);
+        wyczysc(wycena).append(h('table.tabela', { style: 'margin-top:10px' },
+          h('tr', h('th', 'Zakupy'), h('td', `${w.koszt} kr`)),
+          h('tr', h('th', 'Sprzedaż'), h('td', `${w.przychod} kr`)),
+          h('tr', h('th', 'Wynik po kursie dnia'), h('td' + (w.zysk >= 0 ? '.bank-plus' : '.status-nieobecny'), `${w.zysk >= 0 ? '+' : ''}${w.zysk} kr`))),
+        h('div.slaby.maly-tekst', { style: 'margin-top:6px' }, 'Kapitan negocjuje ceny sam — doświadczony handlowiec wyciągnie więcej, nowicjusz mniej. Kursy zmieniają się codziennie.'));
+      }
+
       // Ładunek po każdym przystanku (podgląd; ostateczne sprawdzenie robi serwer).
       function przeliczLadunek() {
         const statek = dane.flota.find((s) => s.id === k.statek);
         const ladownia = {};
         const wiersze = k.przystanki.map((p, i) => {
-          for (const typ of ['rozladunek', 'zaladunek']) {
-            for (const o of p.operacje.filter((x) => x.typ === typ)) {
-              ladownia[o.towar] = Math.max(0, (ladownia[o.towar] || 0) + (typ === 'rozladunek' ? -o.ilosc : o.ilosc));
+          for (const typy of [['rozladunek', 'sprzedaj'], ['zaladunek', 'kup']]) {
+            for (const o of p.operacje.filter((x) => typy.includes(x.typ))) {
+              ladownia[o.towar] = Math.max(0, (ladownia[o.towar] || 0) + (typy[0] === 'rozladunek' ? -o.ilosc : o.ilosc));
             }
           }
           const masa = Object.entries(ladownia).reduce((s, [t, il]) => s + il * (towary[t]?.masa || 1), 0);
@@ -409,19 +441,42 @@ export default {
           const ilosc = h('input', { type: 'number', min: 1, step: 1, value: o.ilosc || '', disabled: !edytowalny,
             style: 'width:110px;min-height:40px;background:rgba(0,0,0,.35);border:1px solid var(--linia);border-radius:4px;padding:0 8px' });
           ilosc.addEventListener('input', () => { o.ilosc = Math.max(0, Math.floor(Number(ilosc.value) || 0)); sprawdz(); });
+          // Cena na tym rynku dziś (dla kupna i sprzedaży).
+          const cena = h('span.slaby.maly-tekst', { style: 'min-width:120px' });
+          const pokazCene = () => {
+            const c = ceny[p.planeta]?.[o.towar];
+            cena.textContent = c && (o.typ === 'kup' || o.typ === 'sprzedaj') ? `${o.typ === 'kup' ? c.kupno : c.sprzedaz} kr / ${towary[o.towar]?.jednostka || 'szt.'}` : '';
+          };
+          pokazCene();
           return h('div.rzad', { style: 'margin-bottom:8px' },
-            wyb([['rozladunek', 'Rozładuj'], ['zaladunek', 'Załaduj']], o.typ, (v) => { o.typ = v; sprawdz(); }),
-            wyb(opcjeTowarow, o.towar, (v) => { o.towar = v; sprawdz(); }, 'towar'),
+            wyb([['rozladunek', 'Rozładuj do magazynu'], ['zaladunek', 'Załaduj z magazynu'], ['kup', 'Kup na rynku'], ['sprzedaj', 'Sprzedaj na rynku']], o.typ, (v) => { o.typ = v; pokazCene(); sprawdz(); }),
+            wyb(opcjeTowarow, o.towar, (v) => { o.towar = v; pokazCene(); sprawdz(); }, 'towar'),
             ilosc,
+            cena,
             edytowalny ? h('button.przycisk.drugi.maly', { 'aria-label': 'Usuń operację', onclick: () => { p.operacje.splice(j, 1); przebuduj(); sprawdz(); } }, '×') : null);
         })),
-        edytowalny ? h('button.przycisk.drugi.maly', { onclick: () => { p.operacje.push({ typ: i === 0 ? 'zaladunek' : 'rozladunek', towar: '', ilosc: 0 }); przebuduj(); sprawdz(); } }, '+ Operacja') : null);
+        edytowalny ? h('button.przycisk.drugi.maly', { onclick: () => { p.operacje.push({ typ: i === 0 ? 'kup' : 'sprzedaj', towar: '', ilosc: 0 }); przebuduj(); sprawdz(); } }, '+ Operacja') : null);
 
       const nazwa = h('input', { value: k.nazwa, maxlength: 80, disabled: !edytowalny, placeholder: 'np. Kurs zbożowy na Tatooine' });
       nazwa.addEventListener('input', () => { k.nazwa = nazwa.value; });
       const notatka = h('input', { value: k.notatka || '', maxlength: 500, disabled: !edytowalny });
       notatka.addEventListener('input', () => { k.notatka = notatka.value; });
       const opcjeStatkow = dane.flota.map((s) => [s.id, `${s.nazwa} · ${s.ladownosc} t · ${nazwaPlanety(s.lokalizacja)} · ${s.stan}`]);
+      const auto = h('input', { type: 'checkbox', checked: !!k.auto, disabled: !edytowalny });
+      const coDni = h('input', { type: 'number', min: 1, max: 30, step: 1, value: k.co_dni || 7, disabled: !edytowalny, style: 'width:80px;min-height:40px;background:rgba(0,0,0,.35);border:1px solid var(--linia);border-radius:4px;padding:0 8px' });
+      auto.addEventListener('change', () => {
+        k.auto = auto.checked;
+        // Automat wraca do portu startowego: dopisz powrót, jeśli go nie ma.
+        const pierwszy = k.przystanki[0]?.planeta;
+        if (k.auto && pierwszy && k.przystanki[k.przystanki.length - 1].planeta !== pierwszy) k.przystanki.push({ planeta: pierwszy, operacje: [] });
+        przebuduj(); sprawdz();
+      });
+      coDni.addEventListener('input', () => { k.co_dni = Math.max(1, Math.min(30, Math.floor(Number(coDni.value) || 7))); });
+      // Dziennik obiegów (kursy automatyczne i rozliczone).
+      const dziennik = (k.dziennik || []).slice().reverse().map((d) => h('li',
+        h('div.rzad', h('span.rozpycha', new Date(d.data).toLocaleDateString('pl-PL')),
+          d.ok ? h('span' + (d.zysk >= 0 ? '.bank-plus' : '.status-nieobecny'), `${d.zysk >= 0 ? '+' : ''}${d.zysk} kr`) : h('span.status-nieobecny', d.opis)),
+        d.pozycje?.length ? h('div.slaby.maly-tekst', d.pozycje.map((x) => `${x.planeta}: ${x.typ === 'kup' ? 'kupno' : 'sprzedaż'} ${x.ilosc} × ${x.towar} po ${x.cena} kr`).join(' · ')) : null));
 
       const zapisz = async (op) => {
         const wynik = await wykonaj(op, { szlak: k }, op === 'szlak_zglos' ? 'Plan lotu złożony w kontroli ruchu.' : 'Szkic zapisany.');
@@ -440,10 +495,12 @@ export default {
             if (s?.lokalizacja && edytowalny) k.przystanki[0].planeta = s.lokalizacja;
             przebuduj(); sprawdz();
           }, 'wybierz statek')),
-          h('div.pole', h('label', 'Uwagi dla kontroli ruchu'), notatka)),
+          h('div.pole', h('label', 'Uwagi dla kontroli ruchu'), notatka),
+          h('label.rzad', { style: 'cursor:pointer' }, auto, h('span', 'Kurs automatyczny — powtarzaj co'), coDni, h('span', 'dni'))),
         k.przystanki.map(przystanek),
         edytowalny ? h('div', { style: 'margin:14px 0' }, h('button.przycisk.drugi', { onclick: () => { k.przystanki.push({ planeta: '', operacje: [] }); przebuduj(); sprawdz(); } }, '+ Przystanek')) : null,
-        h('div.panel', h('h2', 'Obciążenie ładowni'), podsumowanie, problemy),
+        h('div.panel', h('h2', 'Obciążenie ładowni i wycena'), podsumowanie, wycena, problemy),
+        dziennik.length ? h('div.panel', h('h2', 'Dziennik obiegów'), h('ul.lista', dziennik)) : null,
         edytowalny ? h('div.rzad', { style: 'margin-top:14px' },
           h('button.przycisk', { onclick: () => zapisz('szlak_zglos') }, 'Złóż plan lotu'),
           h('button.przycisk.drugi', { onclick: () => zapisz('szlak_zapisz') }, 'Zapisz szkic'),

@@ -13,8 +13,10 @@ const STRAZNIK = "<?php http_response_code(404); exit; ?>\n";
 date_default_timezone_set('Europe/Warsaw');
 require __DIR__ . '/bank.php';
 require __DIR__ . '/firmy.php';
+require __DIR__ . '/handel.php';
 require __DIR__ . '/komorka.php';
 require __DIR__ . '/agencja.php';
+require __DIR__ . '/kanaly.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict', 'secure' => !empty($_SERVER['HTTPS'])]);
 session_name('dp_sesja');
@@ -156,6 +158,7 @@ obsluz_bank($akcja, $post);
 obsluz_firmy($akcja, $post);
 obsluz_komorka($akcja, $post);
 obsluz_agencja($akcja, $post);
+obsluz_kanaly($akcja, $post);
 
 switch ($akcja) {
 
@@ -440,6 +443,8 @@ switch ($akcja) {
             'tresc' => pole('tresc', 20000),
             'poziom' => max(1, min(9, (int) ($w['poziom'] ?? 1))),
             'frakcja' => in_array($frakcja, FRAKCJE, true) ? $frakcja : '',
+            // Plik deszyfrujący: linie „kod | odmiana = znaczenie” (zobacz kanaly.php).
+            'slownik' => slownik_z_tekstu((string) ($w['slownik'] ?? '')),
         ];
         if ($d['sygnatura'] === '' || $d['tytul'] === '') blad('Sygnatura i tytuł są wymagane.');
         $stara = mb_strtoupper(pole('stara', 64));

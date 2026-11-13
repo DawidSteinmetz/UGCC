@@ -427,3 +427,7 @@ input[type="range"] { width: 100%; accent-color: var(--akcent); }
 
 .licznik span { white-space: nowrap; }
 .dwie-kolumny > .panel + .panel { margin-top: 0; }
+
+/* ---------- kanały szyfrowane ---------- */
+
+.odszyfrowane { color: var(--zph); border-bottom: 1px dotted var(--zph); }

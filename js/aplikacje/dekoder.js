@@ -138,6 +138,12 @@ export default {
         tresc.textContent = cel;
         tresc.classList.remove('szyfr');
         przycisk.remove();
+        // Plik deszyfrujący: słownik kodów (używają go kanały szyfrowane w Holonecie).
+        if (dok.slownik?.length) {
+          tresc.after(h('div', { style: 'margin-top:16px' },
+            h('div.maly-tekst', { style: 'color:var(--zph);margin-bottom:6px' }, `Słownik deszyfrujący · ${dok.slownik.length} haseł`),
+            h('table.tabela', dok.slownik.map((x) => h('tr', h('td', x.kody.join(' / ')), h('td', '→ ' + x.znaczenie))))));
+        }
       });
     }
 

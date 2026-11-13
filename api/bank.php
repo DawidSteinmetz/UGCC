@@ -100,6 +100,20 @@ function bank_obciaz(array &$bank, string $od, int $kwota, string $odbiorca, str
     return 'ok';
 }
 
+// Wpływ „z zewnątrz” (np. sprzedaż na giełdzie portowej).
+function bank_uznaj(array &$bank, string $do, int $kwota, string $nadawca, string $tytul, array $nazwy): void
+{
+    $konto = bank_konto($bank, $do);
+    $bank['konta'][$do]['saldo'] += $kwota;
+    bank_zapisz_transakcje($bank, [
+        'typ' => 'wplata',
+        'od' => null, 'od_nazwa' => $nadawca, 'od_numer' => '',
+        'do' => $do, 'do_nazwa' => $nazwy[$do] ?? '?', 'do_numer' => $konto['numer'],
+        'kwota' => $kwota,
+        'tytul' => $tytul,
+    ]);
+}
+
 // Saldo, numer i historia jednego rachunku (np. firmy).
 function bank_wyciag(array &$bank, string $klucz, int $ile = BANK_HISTORIA): array
 {

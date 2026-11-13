@@ -37,6 +37,8 @@ api/bank.php             logika banku (przelewy, odbiorcy, stałe dochody)
 api/firmy.php            firmy (profile), przewozy i wspólny katalog towarów i planet
 api/komorka.php          profil komórki: misje
 api/agencja.php          profil agencji (ISB): wypłaty dla agentów, teczki i meldunki
+api/handel.php           ceny na planetach, kursy handlowe, automaty
+api/kanaly.php           czarny rynek informacji: wtyczki, kanały szyfrowane, słowniki
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -49,7 +51,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
-| Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5 | hub, stream, `/recruitment/` |
+| Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
@@ -122,7 +124,8 @@ w `js/system.js` i do `PLIKI` w `sw.js`. Wzorem może być `ustawienia.js`, najp
 - MG ustawia flotę, załogę i magazyn w edytorze JSON. Planety, towary, statki i osoby wpisuje
   po nazwie. Zapis w edytorze nie rusza kursów graczy.
 - Pensje i koszt obsady budynków są na razie tylko informacją (nic nie schodzi automatycznie
-  z rachunku), a kurs nie kosztuje paliwa. To naturalne następne kroki razem z giełdą i mapą.
+  z rachunku), a kurs nie kosztuje paliwa ani czasu zależnego od odległości. To naturalne
+  następne kroki razem z giełdą i mapą.
 
 ### Profil: komórka
 
@@ -158,6 +161,42 @@ wybiera MG (np. „Biuro Analiz Rynkowych Sektora”). Zakładki:
 - **Monitoring:** teczki obserwowanych obiektów (osoby, statki, lokale). MG dopisuje do nich
   meldunki z terenu (panel MG → Firmy → Teczki w obserwacji).
 - **Rozliczenia:** rachunek agencji (to samo co Finanse w innych profilach).
+
+## Handel i kursy automatyczne
+
+- **Ceny** (`api/handel.php`, z nich skorzysta giełda): towar ma cenę bazową, a planeta
+  **specyfikę**, czyli mnożniki dla towarów albo kategorii, np. Kessel `{"surowce": 0.6,
+  "żywność": 1.6}`. Do tego dzienne wahania ±8% (takie same dla wszystkich graczy danego dnia)
+  i różnica kupno/sprzedaż ±5%. Wszystko w pełnych kredytach.
+- **Operacje w kursie:** załaduj z magazynu / rozładuj do magazynu (jak wcześniej) oraz
+  **kup / sprzedaj na rynku** planety. Przy operacji widać dzisiejszą cenę, a pod planem
+  wycenę całego kursu po kursie giełdowym.
+- **Kapitan:** ukryta cecha `handel` (1–10) kapitana statku zmienia ceny. Przy 10 kupuje
+  o 10% taniej i sprzedaje o 10% drożej, przy 1 odwrotnie o 8%. Bez kapitana statek handluje
+  jak „3”. Gracz widzi tylko wycenę giełdową i faktyczne wyniki w dzienniku, więc zdolności
+  kapitana poznaje po wynikach albo testem.
+- **Kurs automatyczny:** zaznaczenie „Kurs automatyczny — powtarzaj co N dni” wymaga powrotu
+  na planetę startową. Po przyjęciu przez MG kurs powtarza się sam. Każdy obieg liczony jest
+  po cenach z dnia obiegu i rozliczany na rachunku firmy jedną operacją („Giełdy portowe”),
+  a wynik trafia do **dziennika obiegów**. Brak środków na zakupy, brak towaru w magazynie
+  albo przeładowanie **wstrzymuje** automat, a gracz może go wznowić albo zatrzymać.
+  Zaległe obiegi liczą się przy wejściu do firm (bez crona), najwyżej 12 naraz.
+- Zwykły (nieautomatyczny) kurs z kupnem i sprzedażą rozlicza się, gdy MG kliknie
+  „Zakończ i rozlicz”.
+
+## Czarny rynek informacji
+
+- MG zakłada **kanał** (panel MG → Kanały): nazwa i klucz instalacyjny. W kanale nadaje
+  wiadomości szyfrem słownym, np. „Duży ptak opuścił gniazdo na Rykowie. Populacja ptaków
+  zmalała tam do oczu.”
+- Gracz instaluje **wtyczkę** w Ustawieniach → Wtyczki zewnętrzne, wpisując klucz (zdobyty
+  w grze). W Holonecie pojawia się sekcja „Kanały szyfrowane”.
+- **Plik deszyfrujący** to dokument Dekodera ze słownikiem (panel MG → Dokumenty → pole
+  „Słownik”). Jedna linia: `duży ptak | dużego ptaka = gwiezdny niszczyciel (ISD)`, z odmianami
+  oddzielonymi `|`. Gracz pobiera plik po sygnaturze, więc ma go „na dysku”.
+- Kanał podmienia znane kody na znaczenia (wyróżnione kolorem, oryginał w podpowiedzi).
+  Przycisk „Pokaż szyfr” wraca do oryginału. Bez pliku wiadomości zostają zaszyfrowane.
+  Różne pliki mogą znać różne hasła, więc da się rozdawać częściowe klucze.
 
 ## Konta i bezpieczeństwo
 

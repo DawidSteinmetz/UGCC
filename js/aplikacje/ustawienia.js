@@ -2,6 +2,7 @@
 
 import { h, wyczysc } from '../rdzen/narzedzia.js';
 import { URZADZENIE } from '../rdzen/urzadzenie.js';
+import { api } from '../rdzen/api.js';
 
 export default {
   id: 'ustawienia',
@@ -24,12 +25,48 @@ export default {
 
     const wiersz = (k, v) => h('tr', h('th', k), h('td', v));
 
+    // Wtyczki zewnętrzne: paczka instalowana kluczem. Zainstalowana dodaje kanał w Holonecie.
+    const wtyczki = h('div');
+    const klucz = h('input', { placeholder: 'XXX-00-XXXXX', autocapitalize: 'characters', spellcheck: false, autocomplete: 'off' });
+    const wynik = h('div');
+    const rysujWtyczki = async () => {
+      try {
+        const { wtyczki: lista } = await api('wtyczki');
+        wyczysc(wtyczki).append(lista.length
+          ? h('ul.lista', lista.map((x) => h('li', h('div.rzad', h('span.rozpycha', x.nazwa), h('span.maly-tekst', { style: 'color:var(--zph)' }, 'aktywna'),
+            h('button.przycisk.zly.maly', { onclick: async () => { await api('wtyczka_usun', { id: x.id }); rysujWtyczki(); } }, 'Odinstaluj')))))
+          : h('div.slaby.maly-tekst', 'Brak zainstalowanych wtyczek.'));
+      } catch (e) {
+        wyczysc(wtyczki).append(h('div.komunikat.blad', e.message));
+      }
+    };
+    const instaluj = async (e) => {
+      e.preventDefault();
+      wyczysc(wynik).append(h('div.komunikat.ok', 'Weryfikacja paczki...'));
+      try {
+        const d = await api('wtyczka_instaluj', { klucz: klucz.value });
+        klucz.value = '';
+        wyczysc(wynik).append(h('div.komunikat.ok', `Zainstalowano: ${d.nazwa}. Kanał dostępny w Holonecie.`));
+        rysujWtyczki();
+      } catch (err) {
+        wyczysc(wynik).append(h('div.komunikat.blad', err.message));
+      }
+    };
+    rysujWtyczki();
+
     w.append(
       h('div.app-glowa', h('h1', 'Ustawienia')),
       h('div.panel', { style: 'border-color: var(--zph)' },
         h('h2', { style: 'color: var(--zph)' }, 'Transliteracja · moduł ZPH'),
         h('p.slaby.maly-tekst', 'Moduł spoza listy zaufanego oprogramowania. Przepisuje wszystkie znaki systemu na alfabet łaciński.'),
         wybor),
+      h('form.panel', { style: 'border-color: var(--zph)', onsubmit: instaluj },
+        h('h2', { style: 'color: var(--zph)' }, 'Wtyczki zewnętrzne'),
+        h('p.slaby.maly-tekst', 'Oprogramowanie spoza oficjalnej dystrybucji. Instalacja wymaga klucza od dostawcy.'),
+        wtyczki,
+        h('div.rzad', { style: 'margin-top:12px' }, h('div.pole.rozpycha', { style: 'margin:0' }, h('label', 'Klucz instalacyjny'), klucz),
+          h('button.przycisk', { type: 'submit', style: 'align-self:flex-end' }, 'Zainstaluj')),
+        wynik),
       h('div.panel',
         h('h2', 'Ekran'),
         h('div.pole', h('label', 'Jasność'), jasnosc)),

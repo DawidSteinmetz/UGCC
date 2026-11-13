@@ -80,7 +80,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +90,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ konta, bank, firmy, rekrutacja, katalog, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ konta, bank, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -213,22 +213,28 @@ async function bank(edytowany = null) {
 // ---------- katalog: towary i planety ----------
 
 const WZOR_TOWAROW = [
-  { nazwa: 'Zboże', kategoria: 'żywność', masa: 1, jednostka: 't' },
-  { nazwa: 'Ogniwa paliwowe', kategoria: 'paliwo', masa: 2, jednostka: 'skrzynia' },
-  { nazwa: 'Części hipernapędu', kategoria: 'technika', masa: 5, jednostka: 'kontener' },
+  { nazwa: 'Zboże', kategoria: 'żywność', masa: 1, jednostka: 't', cena: 20 },
+  { nazwa: 'Ogniwa paliwowe', kategoria: 'paliwo', masa: 2, jednostka: 'skrzynia', cena: 60 },
+  { nazwa: 'Części hipernapędu', kategoria: 'technika', masa: 5, jednostka: 'kontener', cena: 900 },
 ];
 const WZOR_OFERT = [
   { nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', cena: 5000, pojemnosc: 40, pensja: 15, opis: 'Stare sztolnie, żyła rudy na wyczerpaniu.' },
 ];
 const WZOR_PLANET = [
-  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże' },
-  { nazwa: 'Tatooine', sektor: 'Arkanis' },
+  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', specyfika: { 'żywność': 0.7, technika: 1.3 } },
+  { nazwa: 'Tatooine', sektor: 'Arkanis', specyfika: { 'żywność': 1.6, paliwo: 0.8 } },
 ];
 
 async function katalog() {
   const { katalog: k } = await api('mg_katalog');
   const towary = h('textarea', { style: 'min-height:260px' }, JSON.stringify(k.towary, null, 2));
-  const planety = h('textarea', { style: 'min-height:200px' }, JSON.stringify(k.planety, null, 2));
+  // Specyfika planet: klucze t:<id>/k:<kategoria> zamieniamy na nazwy, żeby dało się je czytać.
+  const nazwaTowaru = Object.fromEntries(k.towary.map((t) => [t.id, t.nazwa]));
+  const planetyCzytelne = k.planety.map((p) => ({
+    ...p,
+    specyfika: Object.fromEntries(Object.entries(p.specyfika || {}).map(([kl, v]) => [kl.startsWith('t:') ? (nazwaTowaru[kl.slice(2)] || kl) : kl.slice(2), v])),
+  }));
+  const planety = h('textarea', { style: 'min-height:200px' }, JSON.stringify(planetyCzytelne, null, 2));
   const pl = Object.fromEntries(k.planety.map((p) => [p.id, p.nazwa]));
   const oferty = h('textarea', { style: 'min-height:200px' }, JSON.stringify(k.oferty.map((o) => ({ ...o, planeta: pl[o.planeta] || '' })), null, 2));
   const info = h('div');
@@ -236,7 +242,9 @@ async function katalog() {
     h('h2', 'Katalog gry'),
     h('p.slaby', 'Wspólna lista dla całej gry: towary używają firmy (a później giełda), planety używa planowanie kursów (później dojdzie mapa). '
       + 'Pole „id” nadaje serwer — nie zmieniaj go, bo odwołują się do niego magazyny i kursy. Nowe pozycje dopisuj bez „id”. '
-      + 'Towar: nazwa, kategoria, masa (t na jednostkę, liczba całkowita), jednostka.'),
+      + 'Towar: nazwa, kategoria, masa (t na jednostkę), jednostka, cena (bazowa, kr). '
+      + 'Planeta: nazwa, sektor, specyfika — mnożniki ceny dla towarów albo kategorii, np. {"surowce": 0.6, "Zboże": 1.5} '
+      + '(0.6 = tanio, bo się tam produkuje; 1.5 = drogo, bo jest popyt). Kursy wahają się codziennie o ±8%, kupno/sprzedaż różnią się o 10%.'),
     info,
     h('label', 'Towary', towary), h('br'),
     h('label', 'Planety', planety), h('br'),
@@ -256,6 +264,44 @@ async function katalog() {
         if (planety.value.trim() === '[]') planety.value = JSON.stringify(WZOR_PLANET, null, 2);
         if (oferty.value.trim() === '[]') oferty.value = JSON.stringify(WZOR_OFERT, null, 2);
       }))));
+}
+
+// ---------- kanały szyfrowane (czarny rynek informacji) ----------
+
+async function kanaly(edytowany = null) {
+  const { kanaly: lista } = await api('mg_kanaly');
+  const e = edytowany || {};
+  const nazwa = h('input', { value: e.nazwa || '', placeholder: 'np. Szept Rubieży' });
+  const klucz = h('input', { value: e.klucz || '', placeholder: 'np. KRK-77-WRAITH' });
+  const odswiez = async (t) => { wyczysc(glowna); await kanaly(); if (t) glowna.prepend(msg(t, 'ok')); };
+  glowna.append(
+    h('div.karta',
+      h('h2', e.id ? `Edycja kanału: ${e.nazwa}` : 'Nowy kanał'),
+      h('p.slaby', 'Gracz instaluje kanał w Ustawieniach → Wtyczki zewnętrzne, wpisując klucz instalacyjny. Kanał pojawia się w Holonecie. '
+        + 'Wiadomości pisz szyfrem słownym. Odszyfrowują je pliki deszyfrujące — dokumenty Dekodera ze słownikiem (zakładka Dokumenty). '
+        + 'Różne pliki mogą znać różne hasła.'),
+      h('div.siatka', pole('Nazwa kanału', nazwa), pole('Klucz instalacyjny', klucz)),
+      h('div.rzad',
+        btn('Zapisz', bezpiecznie(async () => { await api('mg_kanal_zapisz', { id: e.id || '', nazwa: nazwa.value, klucz: klucz.value }); await odswiez('Zapisano kanał.'); }), '.glowny'),
+        e.id ? btn('Anuluj', () => { wyczysc(glowna); kanaly(); }) : null)),
+    ...lista.map((k) => {
+      const tresc = h('textarea', { style: 'min-height:80px;font-family:inherit', placeholder: 'Duży ptak opuścił gniazdo na Rykowie. Populacja ptaków zmalała tam do oczu.' });
+      return h('div.karta',
+        h('div.rzad', h('h2', { style: 'flex:1;margin:0' }, k.nazwa), h('span.slaby', `klucz: ${k.klucz}`),
+          btn('Edytuj', () => { wyczysc(glowna); kanaly(k); }),
+          btn('Usuń kanał', bezpiecznie(async () => { if (!confirm(`Usunąć kanał ${k.nazwa}?`)) return; await api('mg_kanal_usun', { id: k.id }); await odswiez('Usunięto kanał.'); }), '.zly')),
+        h('p.slaby', 'Zainstalowali: ' + (k.odbiorcy.join(', ') || 'nikt')),
+        tresc,
+        h('div', { style: 'margin:6px 0 12px' }, btn('Nadaj wiadomość', bezpiecznie(async () => {
+          await api('mg_wpis_zapisz', { kanal: k.id, tresc: tresc.value });
+          await odswiez('Wiadomość nadana.');
+        }), '.glowny')),
+        h('table', [...k.wpisy].reverse().map((x) => h('tr',
+          h('td.slaby', { style: 'white-space:nowrap' }, new Date(x.data).toLocaleString('pl-PL')),
+          h('td', x.tresc),
+          h('td', btn('Usuń', bezpiecznie(async () => { await api('mg_wpis_usun', { kanal: k.id, id: x.id }); await odswiez('Usunięto wiadomość.'); }), '.zly'))))));
+    }),
+  );
 }
 
 // ---------- rekrutacja: pula kandydatów ----------
@@ -301,8 +347,9 @@ async function rekrutacja() {
 
 const PROFILE_FIRM = { transport: 'Transport', komorka: 'Komórka', agencja: 'Agencja (przykrywka ISB)' };
 const ROLE_FIRMY = { wlasciciel: 'właściciel', menedzer: 'menedżer', pracownik: 'pracownik' };
-const STATYSTYKI = { pilotaz: 'pilotaż', dowodzenie: 'dowodzenie', taktyka: 'taktyka', zarzadzanie: 'zarządzanie', logistyka: 'logistyka', lojalnosc: 'lojalność', konspiracja: 'konspiracja' };
-const STATUS_KURSU = { szkic: 'szkic', zgloszony: 'CZEKA NA DECYZJĘ', w_realizacji: 'w trasie', zakonczony: 'zakończony', odrzucony: 'odrzucony' };
+const STATYSTYKI = { pilotaz: 'pilotaż', dowodzenie: 'dowodzenie', taktyka: 'taktyka', zarzadzanie: 'zarządzanie', logistyka: 'logistyka', lojalnosc: 'lojalność', konspiracja: 'konspiracja', handel: 'handel' };
+const STATUS_KURSU = { szkic: 'szkic', zgloszony: 'CZEKA NA DECYZJĘ', w_realizacji: 'w trasie', wstrzymany: 'wstrzymany', zakonczony: 'zakończony', odrzucony: 'odrzucony' };
+const OPERACJE = { zaladunek: 'załaduj z magazynu', rozladunek: 'rozładuj do magazynu', kup: 'kup', sprzedaj: 'sprzedaj' };
 
 // Dane firmy do edytora: identyfikatory planet, towarów, statków i osób zamienione na nazwy.
 function daneDoEdycji(d, kat) {
@@ -363,7 +410,9 @@ async function firmy() {
 
   // Kursy czekające na decyzję — na górze, bo to codzienna robota MG.
   const czekajace = lista.flatMap((f) => (f.dane.szlaki || [])
-    .filter((s) => ['zgloszony', 'w_realizacji'].includes(s.status)).map((s) => ({ f, s })));
+    .filter((s) => s.status === 'zgloszony' || (s.status === 'w_realizacji' && !s.auto)).map((s) => ({ f, s })));
+  const automaty = lista.flatMap((f) => (f.dane.szlaki || [])
+    .filter((s) => s.auto && ['w_realizacji', 'wstrzymany'].includes(s.status)).map((s) => ({ f, s })));
   if (czekajace.length) {
     const pl = Object.fromEntries(kat.planety.map((p) => [p.id, p.nazwa]));
     const tw = Object.fromEntries(kat.towary.map((t) => [t.id, t.nazwa]));
@@ -377,16 +426,32 @@ async function firmy() {
           await odswiez('Zmieniono status kursu.');
         });
         return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' },
-          h('div', h('b', `${f.nazwa}: ${s.nazwa}`), h('span.slaby', `  · ${statek} · ${STATUS_KURSU[s.status]} · zgłosił(a) ${s.autor || '?'}`)),
+          h('div', h('b', `${f.nazwa}: ${s.nazwa}`), h('span.slaby', `  · ${statek} · ${STATUS_KURSU[s.status]}${s.auto ? ` · AUTOMAT co ${s.co_dni} dni` : ''} · zgłosił(a) ${s.autor || '?'}`)),
           h('ol', { style: 'margin:6px 0' }, s.przystanki.map((p) => h('li', pl[p.planeta] || '?',
-            p.operacje.length ? h('span.slaby', ' — ' + p.operacje.map((o) => `${o.typ === 'zaladunek' ? 'załaduj' : 'rozładuj'} ${o.ilosc} × ${tw[o.towar] || '?'}`).join(', ')) : null))),
+            p.operacje.length ? h('span.slaby', ' — ' + p.operacje.map((o) => `${OPERACJE[o.typ] || o.typ} ${o.ilosc} × ${tw[o.towar] || '?'}`).join(', ')) : null))),
           s.notatka ? h('div.slaby', 'Notatka graczy: ' + s.notatka) : null,
           h('div.rzad', { style: 'margin-top:8px' },
             h('div', { style: 'flex:1;min-width:220px' }, uwagi),
-            s.status === 'zgloszony' ? btn('Przyjmij (w trasie)', zmien('w_realizacji'), '.glowny') : null,
+            s.status === 'zgloszony' ? btn(s.auto ? 'Przyjmij (uruchom automat)' : 'Przyjmij (w trasie)', zmien('w_realizacji'), '.glowny') : null,
             s.status === 'w_realizacji' ? btn('Zakończ i rozlicz', zmien('zakonczony', 'Zakończyć kurs? Magazyny i położenie statku zmienią się zgodnie z planem.'), '.glowny') : null,
             btn('Odrzuć', zmien('odrzucony'), '.zly')));
       })));
+  }
+
+  // Działające automaty: wyniki ostatnich obiegów, zatrzymanie.
+  if (automaty.length) {
+    glowna.append(h('div.karta', h('h2', `Kursy automatyczne (${automaty.length})`),
+      h('table', h('tr', h('th', 'Firma / kurs'), h('th', 'Status'), h('th', 'Ostatnie obiegi'), h('th', 'Następny'), h('th', '')),
+        automaty.map(({ f, s }) => h('tr',
+          h('td', h('b', s.nazwa), h('div.slaby', f.nazwa)),
+          h('td', s.status === 'wstrzymany' ? h('span', { style: 'color:var(--zly)' }, 'wstrzymany') : 'działa', s.uwagi ? h('div.slaby', s.uwagi) : null),
+          h('td', (s.dziennik || []).slice(-4).map((d) => h('div.slaby', `${d.data}: ${d.ok ? (d.zysk >= 0 ? '+' : '') + d.zysk + ' kr' : 'nieudany'}`))),
+          h('td', s.status === 'w_realizacji' && s.nastepny ? new Date(s.nastepny).toLocaleDateString('pl-PL') : '—'),
+          h('td', btn('Zatrzymaj', bezpiecznie(async () => {
+            if (!confirm('Zatrzymać automat? Statek wróci do dyspozycji firmy.')) return;
+            await api('mg_szlak_status', { firma: f.id, szlak: s.id, status: 'zakonczony' });
+            await odswiez('Automat zatrzymany.');
+          }), '.zly')))))));
   }
 
   // Misje komórek: zatwierdzenie przed sesją, ręczne rozliczenie po sesji.
@@ -557,11 +622,13 @@ async function dokumenty(edytowany = null) {
     poziom: h('input', { type: 'number', min: 1, max: 9, value: e.poziom || 1 }),
     frakcja: h('select', h('option', { value: '' }, 'dowolna'), FRAKCJE.map((x) => h('option', { selected: e.frakcja === x }, x))),
     tresc: h('textarea', { style: 'min-height:220px;font-family:inherit' }, e.tresc || ''),
+    slownik: h('textarea', { style: 'min-height:120px', placeholder: 'duży ptak | dużego ptaka = gwiezdny niszczyciel\ngniazdo | gnieździe = orbita' },
+      (e.slownik || []).map((x) => `${x.kody.join(' | ')} = ${x.znaczenie}`).join('\n')),
   };
   const zapisz = bezpiecznie(async () => {
     await api('mg_dokument_zapisz', {
       sygnatura: f.sygnatura.value, tytul: f.tytul.value, poziom: Number(f.poziom.value),
-      frakcja: f.frakcja.value, tresc: f.tresc.value, stara: e.sygnatura || '',
+      frakcja: f.frakcja.value, tresc: f.tresc.value, slownik: f.slownik.value, stara: e.sygnatura || '',
     });
     wyczysc(glowna);
     await dokumenty();
@@ -571,6 +638,7 @@ async function dokumenty(edytowany = null) {
     h('div.karta', h('h2', e.sygnatura ? `Edycja: ${e.sygnatura}` : 'Nowy dokument'),
       h('div.siatka', pole('Sygnatura', f.sygnatura), pole('Tytuł', f.tytul), pole('Wymagany poziom', f.poziom), pole('Tylko dla frakcji', f.frakcja)),
       pole('Treść', f.tresc), h('br'),
+      pole('Słownik deszyfrujący (opcjonalnie — robi z dokumentu plik deszyfrujący dla kanałów szyfrowanych). Linia: „kod | odmiana | odmiana = znaczenie”.', f.slownik), h('br'),
       h('div.rzad', btn('Zapisz', zapisz, '.glowny'), e.sygnatura ? btn('Anuluj', () => { wyczysc(glowna); dokumenty(); }) : null)),
     h('div.karta.przewijana', h('h2', `Dokumenty (${lista.length})`),
       h('table', h('tr', h('th', 'Sygnatura'), h('th', 'Tytuł'), h('th', 'Poziom'), h('th', 'Frakcja'), h('th', '')),

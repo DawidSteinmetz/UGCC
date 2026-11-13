@@ -20,6 +20,7 @@ const STATYSTYKI = [
     'logistyka' => 'Logistyka',
     'lojalnosc' => 'Lojalność',
     'konspiracja' => 'Konspiracja',
+    'handel' => 'Handel',
 ];
 const STANY_OSOBY = ['zdrowy', 'ranny', 'na misji', 'spalony', 'zatrzymany'];
 const TEST_CO_ILE_DNI = 30;
@@ -27,7 +28,9 @@ const TEST_CO_ILE_DNI = 30;
 const PULA_PROFILU = ['transport' => 'ogolna', 'komorka' => 'ogolna', 'agencja' => 'agencja'];
 const ROLE_FIRMY = ['wlasciciel', 'menedzer', 'pracownik'];
 const STANY_STATKU = ['sprawny', 'uszkodzony', 'w naprawie', 'w trasie', 'na misji'];
-const STATUSY_SZLAKU = ['szkic', 'zgloszony', 'w_realizacji', 'zakonczony', 'odrzucony'];
+const STATUSY_SZLAKU = ['szkic', 'zgloszony', 'w_realizacji', 'wstrzymany', 'zakonczony', 'odrzucony'];
+const SZLAK_AKTYWNY = ['zgloszony', 'w_realizacji', 'wstrzymany'];
+const OPERACJE_SZLAKU = ['zaladunek', 'rozladunek', 'kup', 'sprzedaj'];
 
 function katalog(): array
 {
@@ -152,120 +155,12 @@ function nadaj_id(array $lista): array
     return $lista;
 }
 
-// ---------- transport: sprawdzanie szlaku ----------
-//
-// Symulujemy kurs przystanek po przystanku: najpierw rozładunek, potem załadunek.
-// Sprawdzamy ładowność, to, czy rozładowujemy tylko to, co jest na pokładzie,
-// i czy w magazynie na danej planecie jest dość towaru (z uwzględnieniem wcześniejszych
-// rozładunków w tym samym kursie). Zwraca listę problemów; pusta = szlak poprawny.
+// ---------- transport: sprawdzanie i rozliczanie szlaku ----------
+// Cała logika (magazyny, ładowność, handel) jest w handel.php.
 
 function transport_sprawdz_szlak(array $szlak, array $dane, array $katalog, bool $w_trasie = false): array
 {
-    $problemy = [];
-    $towary = array_column($katalog['towary'], null, 'id');
-    $planety = array_column($katalog['planety'], null, 'id');
-    $statki = array_column($dane['flota'], null, 'id');
-
-    $statek = $statki[$szlak['statek'] ?? ''] ?? null;
-    if (!$statek) {
-        return ['Nie wybrano statku.'];
-    }
-    // Przy rozliczaniu trwającego kursu statek jest „w trasie” — to oczekiwane.
-    if (!$w_trasie && ($statek['stan'] ?? 'sprawny') !== 'sprawny') {
-        $problemy[] = "Statek {$statek['nazwa']} nie jest sprawny ({$statek['stan']}).";
-    }
-    $przystanki = $szlak['przystanki'] ?? [];
-    if (count($przystanki) < 2) {
-        $problemy[] = 'Szlak potrzebuje co najmniej dwóch przystanków.';
-    }
-    if ($przystanki && ($statek['lokalizacja'] ?? '') !== '' && $przystanki[0]['planeta'] !== $statek['lokalizacja']) {
-        $nazwa = $planety[$statek['lokalizacja']]['nazwa'] ?? '?';
-        $problemy[] = "Statek stoi na: $nazwa. Pierwszy przystanek musi być tam.";
-    }
-
-    $magazyn = [];
-    foreach ($dane['magazyn'] as $m) {
-        $magazyn[$m['planeta'] . '|' . $m['towar']] = (int) $m['ilosc'];
-    }
-    $ladownia = [];
-    $ladownosc = (int) ($statek['ladownosc'] ?? 0);
-
-    foreach ($przystanki as $i => $p) {
-        $nr = $i + 1;
-        if (!isset($planety[$p['planeta'] ?? ''])) {
-            $problemy[] = "Przystanek $nr: nieznana planeta.";
-            continue;
-        }
-        $nazwaPl = $planety[$p['planeta']]['nazwa'];
-        $operacje = $p['operacje'] ?? [];
-        usort($operacje, fn($a, $b) => ($a['typ'] === 'rozladunek' ? 0 : 1) <=> ($b['typ'] === 'rozladunek' ? 0 : 1));
-        foreach ($operacje as $o) {
-            $t = $towary[$o['towar'] ?? ''] ?? null;
-            $ilosc = (int) ($o['ilosc'] ?? 0);
-            if (!$t || $ilosc <= 0) {
-                $problemy[] = "Przystanek $nr ($nazwaPl): nieprawidłowa operacja.";
-                continue;
-            }
-            $klucz = $p['planeta'] . '|' . $t['id'];
-            if ($o['typ'] === 'rozladunek') {
-                $naPokladzie = $ladownia[$t['id']] ?? 0;
-                if ($ilosc > $naPokladzie) {
-                    $problemy[] = "Przystanek $nr ($nazwaPl): rozładunek {$ilosc} {$t['jednostka']} {$t['nazwa']}, a na pokładzie jest $naPokladzie.";
-                    $ilosc = $naPokladzie;
-                }
-                $ladownia[$t['id']] = $naPokladzie - $ilosc;
-                $magazyn[$klucz] = ($magazyn[$klucz] ?? 0) + $ilosc;
-            } else {
-                $wMagazynie = $magazyn[$klucz] ?? 0;
-                if ($ilosc > $wMagazynie) {
-                    $problemy[] = "Przystanek $nr ($nazwaPl): załadunek {$ilosc} {$t['jednostka']} {$t['nazwa']}, a w magazynie jest $wMagazynie.";
-                }
-                $magazyn[$klucz] = max(0, $wMagazynie - $ilosc);
-                $ladownia[$t['id']] = ($ladownia[$t['id']] ?? 0) + $ilosc;
-            }
-        }
-        $masa = 0;
-        foreach ($ladownia as $tid => $il) {
-            $masa += $il * (int) ($towary[$tid]['masa'] ?? 1);
-        }
-        if ($masa > $ladownosc) {
-            $problemy[] = "Przystanek $nr ($nazwaPl): ładunek $masa t przekracza ładowność $ladownosc t.";
-        }
-    }
-    if (array_sum($ladownia) > 0) {
-        $problemy[] = 'Po ostatnim przystanku w ładowni zostaje towar. Rozładuj go albo dodaj przystanek.';
-    }
-    return $problemy;
-}
-
-// Zakończony kurs: towar z magazynów przechodzi zgodnie z planem, statek zostaje na ostatniej planecie.
-function transport_rozlicz_szlak(array &$dane, array $szlak): void
-{
-    $magazyn = [];
-    foreach ($dane['magazyn'] as $m) {
-        $magazyn[$m['planeta'] . '|' . $m['towar']] = (int) $m['ilosc'];
-    }
-    foreach ($szlak['przystanki'] as $p) {
-        foreach ($p['operacje'] ?? [] as $o) {
-            $k = $p['planeta'] . '|' . $o['towar'];
-            $zmiana = $o['typ'] === 'rozladunek' ? (int) $o['ilosc'] : -(int) $o['ilosc'];
-            $magazyn[$k] = max(0, ($magazyn[$k] ?? 0) + $zmiana);
-        }
-    }
-    $dane['magazyn'] = [];
-    foreach ($magazyn as $k => $il) {
-        if ($il > 0) {
-            [$planeta, $towar] = explode('|', $k, 2);
-            $dane['magazyn'][] = ['planeta' => $planeta, 'towar' => $towar, 'ilosc' => $il];
-        }
-    }
-    $ostatni = end($szlak['przystanki']);
-    foreach ($dane['flota'] as &$s) {
-        if ($s['id'] === $szlak['statek']) {
-            $s['lokalizacja'] = $ostatni['planeta'];
-            $s['stan'] = 'sprawny';
-        }
-    }
+    return handel_symuluj($szlak, $dane, $katalog, date('Y-m-d'), null, $w_trasie)['problemy'];
 }
 
 function transport_ustaw_stan_statku(array &$dane, string $statek, string $stan): void
@@ -285,7 +180,7 @@ function transport_oczysc_szlak(array $w): array
         $operacje = [];
         foreach (array_slice((array) ($p['operacje'] ?? []), 0, 30) as $o) {
             $operacje[] = [
-                'typ' => ($o['typ'] ?? '') === 'rozladunek' ? 'rozladunek' : 'zaladunek',
+                'typ' => in_array($o['typ'] ?? '', OPERACJE_SZLAKU, true) ? $o['typ'] : 'zaladunek',
                 'towar' => mb_substr((string) ($o['towar'] ?? ''), 0, 32),
                 'ilosc' => max(0, (int) ($o['ilosc'] ?? 0)),
             ];
@@ -298,6 +193,8 @@ function transport_oczysc_szlak(array $w): array
         'statek' => mb_substr((string) ($w['statek'] ?? ''), 0, 32),
         'przystanki' => $przystanki,
         'notatka' => mb_substr(trim((string) ($w['notatka'] ?? '')), 0, 500),
+        'auto' => !empty($w['auto']),
+        'co_dni' => max(1, min(30, (int) ($w['co_dni'] ?? 7))),
     ];
 }
 
@@ -450,7 +347,7 @@ function transport_operacja(array &$firma, string $op, array $w, array $u, bool 
             if ($op === 'szlak_zglos') {
                 if ($problemy) odpowiedz(['blad' => 'Plan kursu zawiera błędy.', 'problemy' => $problemy], 400);
                 foreach ($dane['szlaki'] as $x) {
-                    if ($x['statek'] === $s['statek'] && $x['id'] !== $s['id'] && in_array($x['status'], ['zgloszony', 'w_realizacji'], true)) {
+                    if ($x['statek'] === $s['statek'] && $x['id'] !== $s['id'] && in_array($x['status'], SZLAK_AKTYWNY, true)) {
                         blad('Ten statek ma już zgłoszony lub trwający kurs.');
                     }
                 }
@@ -460,9 +357,34 @@ function transport_operacja(array &$firma, string $op, array $w, array $u, bool 
             $s['autor'] = $u['postac'];
             $s['zmieniono'] = date('c');
             $s['uwagi'] = $stary['uwagi'] ?? '';
+            $s['dziennik'] = $stary['dziennik'] ?? [];
             $dane['szlaki'] = array_values(array_filter($dane['szlaki'], fn($x) => $x['id'] !== $s['id']));
             $dane['szlaki'][] = $s;
             return ['ok' => true, 'id' => $s['id'], 'problemy' => $problemy];
+
+        case 'szlak_zatrzymaj':
+            // Gracz kończy kurs automatyczny (po bieżącym obiegu statek zostaje w porcie startowym).
+            foreach ($dane['szlaki'] as &$x) {
+                if ($x['id'] !== ($w['id'] ?? '')) continue;
+                if (empty($x['auto']) || !in_array($x['status'], ['w_realizacji', 'wstrzymany'], true)) blad('Ten kurs nie jest automatyczny albo już nie działa.');
+                $x['status'] = 'zakonczony';
+                $x['zmieniono'] = date('c');
+                transport_ustaw_stan_statku($dane, $x['statek'], 'sprawny');
+                return ['ok' => true];
+            }
+            blad('Nie ma takiego kursu.', 404);
+
+        case 'szlak_wznow':
+            // Wznowienie wstrzymanego automatu (np. po dopłacie na rachunek albo uzupełnieniu magazynu).
+            foreach ($dane['szlaki'] as &$x) {
+                if ($x['id'] !== ($w['id'] ?? '')) continue;
+                if ($x['status'] !== 'wstrzymany') blad('Ten kurs nie jest wstrzymany.');
+                $x['status'] = 'w_realizacji';
+                $x['uwagi'] = '';
+                $x['nastepny'] = date('c', time() + $x['co_dni'] * 86400);
+                return ['ok' => true];
+            }
+            blad('Nie ma takiego kursu.', 404);
 
         case 'szlak_usun':
             $sid = (string) ($w['id'] ?? '');
@@ -483,6 +405,7 @@ function obsluz_firmy(string $akcja, bool $post): void
 
         case 'firmy':
             $u = wymagaj_logowania();
+            handel_automaty();
             $lista = [];
             foreach (wczytaj('firmy', firmy_puste())['firmy'] as $f) {
                 $rola = firma_rola($f, $u['id']);
@@ -492,6 +415,7 @@ function obsluz_firmy(string $akcja, bool $post): void
 
         case 'firma':
             $u = wymagaj_logowania();
+            handel_automaty();
             $fid = (string) ($_GET['id'] ?? '');
             $postacie = bank_postacie();
             foreach (wczytaj('firmy', firmy_puste())['firmy'] as $f) {
@@ -507,6 +431,7 @@ function obsluz_firmy(string $akcja, bool $post): void
                     'katalog' => katalog(),
                     'finanse' => $finanse,
                     'kandydaci' => kandydaci_dla_firmy($f),
+                    'ceny' => handel_ceny_dnia(katalog(), date('Y-m-d')),
                 ]);
             }
             blad('Nie ma takiej firmy.', 404);
@@ -542,7 +467,9 @@ function obsluz_firmy(string $akcja, bool $post): void
             foreach (wczytaj('firmy', firmy_puste())['firmy'] as $f) {
                 if ($f['id'] !== ($w['firma'] ?? '')) continue;
                 if (!firma_rola($f, $u['id']) && $u['rola'] !== 'mg') blad('Brak dostępu.', 403);
-                odpowiedz(['problemy' => transport_sprawdz_szlak(transport_oczysc_szlak($w['szlak'] ?? []), $f['dane'], katalog())]);
+                // Problemy planu i wycena po dzisiejszym kursie giełdowym (bez wpływu kapitana).
+                $sym = handel_symuluj(transport_oczysc_szlak($w['szlak'] ?? []), $f['dane'] + firma_dane_puste($f['profil']), katalog(), date('Y-m-d'));
+                odpowiedz(['problemy' => $sym['problemy'], 'wycena' => ['koszt' => $sym['koszt'], 'przychod' => $sym['przychod'], 'zysk' => $sym['zysk'], 'pozycje' => $sym['pozycje']]]);
             }
             blad('Nie ma takiej firmy.', 404);
 
@@ -562,11 +489,37 @@ function obsluz_firmy(string $akcja, bool $post): void
                 if (trim((string) ($t['nazwa'] ?? '')) === '') blad('Każdy towar musi mieć nazwę.');
                 $t['masa'] = max(1, (int) ($t['masa'] ?? 1));
                 $t['jednostka'] = (string) ($t['jednostka'] ?? 't');
+                $t['cena'] = max(1, (int) ($t['cena'] ?? 10));
+                $t['kategoria'] = (string) ($t['kategoria'] ?? '');
             }
             unset($t);
-            foreach ($planety as $p) {
+            // Specyfika planety: { "nazwa towaru albo kategorii": mnożnik ceny }.
+            // Zapisujemy jako t:<id towaru> albo k:<kategoria>; w edytorze MG wraca do nazw.
+            $kategorie = array_unique(array_map(fn($t) => mb_strtolower($t['kategoria']), $towary));
+            foreach ($planety as &$p) {
                 if (trim((string) ($p['nazwa'] ?? '')) === '') blad('Każda planeta musi mieć nazwę.');
+                $sp = [];
+                foreach ((array) ($p['specyfika'] ?? []) as $klucz => $mn) {
+                    $mn = round(max(0.1, min(10, (float) $mn)), 2);
+                    if (str_starts_with((string) $klucz, 't:') || str_starts_with((string) $klucz, 'k:')) {
+                        $sp[$klucz] = $mn;
+                        continue;
+                    }
+                    $towar = null;
+                    foreach ($towary as $t) {
+                        if (mb_strtolower($t['nazwa']) === mb_strtolower(trim((string) $klucz))) $towar = $t;
+                    }
+                    if ($towar) {
+                        $sp['t:' . $towar['id']] = $mn;
+                    } elseif (in_array(mb_strtolower(trim((string) $klucz)), $kategorie, true)) {
+                        $sp['k:' . mb_strtolower(trim((string) $klucz))] = $mn;
+                    } else {
+                        blad("Specyfika planety {$p['nazwa']}: nie ma towaru ani kategorii „{$klucz}”.");
+                    }
+                }
+                $p['specyfika'] = $sp;
             }
+            unset($p);
             // Rynek nieruchomości: oferty budynków do kupienia przez firmy (każda oferta = jeden budynek).
             $oferty = nadaj_id((array) ($w['oferty'] ?? []));
             foreach ($oferty as &$o) {
@@ -610,6 +563,7 @@ function obsluz_firmy(string $akcja, bool $post): void
 
         case 'mg_firmy':
             wymagaj_mg();
+            handel_automaty();
             odpowiedz(['firmy' => wczytaj('firmy', firmy_puste())['firmy'], 'katalog' => katalog()]);
 
         case 'mg_firma_zapisz':
@@ -754,17 +708,27 @@ function obsluz_firmy(string $akcja, bool $post): void
                     if ($f['id'] !== ($w['firma'] ?? '')) continue;
                     foreach ($f['dane']['szlaki'] as &$s) {
                         if ($s['id'] !== ($w['szlak'] ?? '')) continue;
-                        $dozwolone = ['zgloszony' => ['w_realizacji', 'odrzucony'], 'w_realizacji' => ['zakonczony', 'odrzucony']];
+                        $dozwolone = ['zgloszony' => ['w_realizacji', 'odrzucony'], 'w_realizacji' => ['zakonczony', 'odrzucony'], 'wstrzymany' => ['zakonczony', 'odrzucony']];
                         if (!in_array($status, $dozwolone[$s['status']] ?? [], true)) blad('Tej zmiany statusu nie można wykonać.');
                         // Magazyny mogły się zmienić od zgłoszenia (np. inny kurs zabrał towar),
                         // więc przed przyjęciem i przed rozliczeniem plan jest sprawdzany jeszcze raz.
-                        if ($status !== 'odrzucony') {
+                        // (Zatrzymanie automatu niczego nie rozlicza, więc go nie sprawdzamy.)
+                        if ($status === 'w_realizacji' || ($status === 'zakonczony' && empty($s['auto']))) {
                             $problemy = transport_sprawdz_szlak($s, $f['dane'], katalog(), $s['status'] === 'w_realizacji');
                             if ($problemy) blad('Plan nie zgadza się z obecnym stanem: ' . implode(' ', $problemy) . ' Odrzuć kurs z uwagą albo popraw magazyn.');
                         }
-                        if ($status === 'w_realizacji') transport_ustaw_stan_statku($f['dane'], $s['statek'], 'w trasie');
+                        if ($status === 'w_realizacji') {
+                            transport_ustaw_stan_statku($f['dane'], $s['statek'], 'w trasie');
+                            if (!empty($s['auto'])) $s['nastepny'] = date('c', time() + $s['co_dni'] * 86400);
+                        }
                         if ($status === 'odrzucony' && $s['status'] === 'w_realizacji') transport_ustaw_stan_statku($f['dane'], $s['statek'], 'sprawny');
-                        if ($status === 'zakonczony') transport_rozlicz_szlak($f['dane'], $s);
+                        if ($status === 'zakonczony' && !empty($s['auto'])) {
+                            transport_ustaw_stan_statku($f['dane'], $s['statek'], 'sprawny'); // zatrzymanie automatu
+                        } elseif ($status === 'zakonczony') {
+                            $wpis = handel_wykonaj($f, $s, date('Y-m-d'), true);
+                            if (!$wpis['ok']) blad('Nie można rozliczyć kursu: ' . $wpis['opis']);
+                            $s['dziennik'][] = $wpis;
+                        }
                         $s['status'] = $status;
                         $s['uwagi'] = $uwagi;
                         $s['zmieniono'] = date('c');
