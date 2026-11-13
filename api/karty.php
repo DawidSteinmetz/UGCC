@@ -148,6 +148,7 @@ function obsluz_karty(string $akcja, bool $post): void
             $nazwyLok = array_column($lokacje, 'nazwa', 'klucz');
             foreach ($lista as &$x) {
                 $x['karta']['pojazdy'] = array_map(fn($p) => ['lokacja' => $nazwyLok[$p['lokacja'] ?? ''] ?? ''] + $p, $x['karta']['pojazdy']);
+                $x['karta']['znane'] = array_map(fn($z) => $nazwyLok[$z] ?? $z, $x['karta']['znane'] ?? []);
             }
             unset($x);
             odpowiedz(['postacie' => $lista, 'budynki' => $budynki, 'lokacje' => $lokacje]);

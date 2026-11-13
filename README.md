@@ -296,16 +296,27 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
   dopóki postać nie zmieni miejsca (liczy się nowsza zmiana).
 - **Start:** na pokładzie statku po obsłudze naziemnej Nawigacja pokazuje „Start”. Wszyscy na
   pokładzie widzą wznoszenie: przez 5 minut chmury w kolorze atmosfery planety, potem niebo
-  ciemnieje, pojawiają się gwiazdy, a od dołu wyłania się planeta. Start zużywa 5% paliwa.
+  ciemnieje i pojawiają się gwiazdy (planety nie widać, jest za rufą). Start zużywa 5% paliwa.
   Licznik liczy od chwili startu, więc tablet włączony później jest w tym samym miejscu lotu.
-- **Orbita:** po wznoszeniu Nawigacja czeka na **współrzędne skoku** albo pozwala wrócić
-  („Ląduj w hangarze”). Na razie współrzędne porównywane są z polem `wspolrzedne` planet
+- **Orbita:** po wznoszeniu Nawigacja czeka na **współrzędne skoku** albo na lądowanie. Na razie współrzędne porównywane są z polem `wspolrzedne` planet
   w katalogu (wielkość liter, spacje i znaki inne niż cyfry, litery, kropka i minus nie mają
   znaczenia). Pełne zasady astronawigacji dopiszemy razem z mapą.
 - **Skok:** dobre współrzędne uruchamiają animację skoku i tunel u wszystkich na pokładzie.
   Wyjście z nadprzestrzeni wywołuje MG (panel → Stan postaci → Statki w locie → **Zakończ
-  skok**). Statek pojawia się przy celu (−20% paliwa) z przydziałem do pierwszego
-  hangaru albo portu tej planety, załoga widzi wyjście z planetą, a potem może lądować.
+  skok**). Statek pojawia się przy celu (−20% paliwa) bez lądowiska, a załoga widzi wyjście
+  z nadprzestrzeni z planetą.
+- **Lądowanie** (Nawigacja na orbicie), lądowiska to lokacje typu hangar, platforma, port:
+  - **automat:** wybór z listy lądowisk, które postać zna (publiczne, firmowe, ze „znanych
+    miejsc”, poprzednio użyte) albo które przydzieliła kontrola lotów (oznaczone ★);
+  - **ręcznie:** współrzędne `x / y` lądowiska (tolerancja 0,25 km), także nieznanego.
+    Po lądowaniu miejsce trafia do znanych miejsc załogi.
+- **Kontrola lotów:** planeta może mieć pole `kontrola` (np. „Imperialna Kontrola Lotów”),
+  a pusta oznacza brak kontroli. Po wyjściu z nadprzestrzeni kontrola sama się odzywa, a gracz
+  może też nadać pierwszy („Wywołaj kontrolę lotów”). Odpowiada MG w panelu (Stan postaci →
+  Statki w locie): tekst i opcjonalny **przydział lądowiska**. Odpowiedzi postaci
+  niezależnych z modelu językowego (LLM) da się podpiąć w funkcji `lacznosc_odpowiedz_npc()`
+  w `api/ruch.php`. To miejsce jest przygotowane, ale jeszcze puste (wymaga klucza API
+  i ustalenia osobowości kontrolerów).
 - W locie nie da się zejść z pokładu, jechać ani iść. Pulpit pokazuje szybką akcję
   z odliczaniem wznoszenia i informację o orbicie albo nadprzestrzeni.
 

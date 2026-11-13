@@ -556,6 +556,8 @@ function obsluz_firmy(string $akcja, bool $post): void
                 // Typ planety (widok z powierzchni, chmury przy starcie) i współrzędne skoku.
                 $p['typ'] = in_array($p['typ'] ?? '', TYPY_PLANET, true) ? $p['typ'] : 'skalista';
                 $p['wspolrzedne'] = mb_substr(trim((string) ($p['wspolrzedne'] ?? '')), 0, 40);
+                // Kontrola lotów (nazwa, np. „Imperialna Kontrola Lotów Tatooine”); pusta = planeta bez kontroli.
+                $p['kontrola'] = mb_substr(trim((string) ($p['kontrola'] ?? '')), 0, 80);
                 if (isset($p['taksowka'])) $p['taksowka'] = max(1, (int) $p['taksowka']);
             }
             unset($p);

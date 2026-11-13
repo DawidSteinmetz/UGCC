@@ -311,7 +311,7 @@ async function rysujSzybkieAkcje() {
     const p = d.poklad;
     if (p.scena === 'start' && p.od_zmiany_ms < p.wznoszenie_ms) akcja('Wznoszenie · orbita za', () => otworz('nawigacja'), zostalo(teraz() + (p.wznoszenie_ms - p.od_zmiany_ms) / 1000));
     else if (['wejscie', 'nadswietlna'].includes(p.scena) || p.cel) akcja(`${p.nazwa}: lot w nadprzestrzeni`, () => otworz('nawigacja'));
-    else akcja(`${p.nazwa} na orbicie · wprowadź współrzędne skoku`, () => otworz('nawigacja'));
+    else akcja(`${p.nazwa} na orbicie · skok lub lądowanie`, () => otworz('nawigacja'));
   } else if (d.gdzie) {
     for (const s of d.statki.slice(0, 2)) {
       const pr = s.przygotowanie;

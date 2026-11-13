@@ -6,7 +6,7 @@
 //   wyjscie     — smugi się kurczą, błysk, z ciemności wyłania się planeta
 //   orbita      — planeta (typ i odległość od MG) na tle gwiazd
 //   powierzchnia — widok za oknem (biuro, hotel) albo z wrót hangaru: niebo i krajobraz planety
-//   start       — wznoszenie: ~5 min chmur w kolorze atmosfery, potem czarne niebo, gwiazdy i planeta
+//   start       — wznoszenie: ~5 min chmur w kolorze atmosfery, potem czarne niebo i gwiazdy (planeta za rufą)
 //
 // Wszystko rysowane kodem na <canvas>, bez obrazków. Animacja zatrzymuje się, gdy scena
 // jest niewidoczna (otwarta aplikacja, wygaszony ekran), żeby nie drenować baterii.
@@ -493,7 +493,7 @@ export function utworzScene(canvas) {
   // Rama okna (biuro, hotel…) albo wrota hangaru. Na zewnątrz (bankomat, inne) — bez ramy.
   function rysujRame(wnetrze) {
     const okno = ['biuro', 'hotel', 'kantyna', 'sklep', 'garaz'].includes(wnetrze);
-    const hangar = ['hangar', 'port', 'poklad'].includes(wnetrze);
+    const hangar = ['hangar', 'port', 'poklad'].includes(wnetrze); // platforma: otwarty widok
     if (!okno && !hangar) return;
     ctx.save();
     ctx.fillStyle = '#0a0e12';
@@ -565,13 +565,7 @@ export function utworzScene(canvas) {
       }
       ctx.restore();
     }
-    const pojawienie = gladko(1.25, 1.8, f);
-    if (pojawienie > 0) {
-      const s = stan.odleglosc;
-      stan.odleglosc = 'blisko';
-      rysujPlanete(t, pojawienie);
-      stan.odleglosc = s;
-    }
+    // Planety nie widać: przy wznoszeniu jest za rufą. Zostaje czarne niebo i gwiazdy.
   }
 
   // ---------- pętla ----------

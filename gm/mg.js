@@ -232,7 +232,7 @@ const WZOR_LOKACJI = [
 ];
 const WZOR_PLANET = [
   { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', typ: 'oceaniczna', wspolrzedne: 'Z-12 · 044.10 / 017.32', urbanizacja: 'wysoka', taksowka: 4, specyfika: { 'żywność': 0.7, technika: 1.3 } },
-  { nazwa: 'Tatooine', sektor: 'Arkanis', typ: 'pustynna', wspolrzedne: 'R-16 · 112.07 / -33.90', urbanizacja: 'niska', specyfika: { 'żywność': 1.6, paliwo: 0.8 } },
+  { nazwa: 'Tatooine', sektor: 'Arkanis', typ: 'pustynna', kontrola: 'Kontrola Lotów Mos Eisley', wspolrzedne: 'R-16 · 112.07 / -33.90', urbanizacja: 'niska', specyfika: { 'żywność': 1.6, paliwo: 0.8 } },
 ];
 
 async function katalog() {
@@ -255,12 +255,12 @@ async function katalog() {
     h('p.slaby', 'Wspólna lista dla całej gry: towary używają firmy (a później giełda), planety używa planowanie kursów (później dojdzie mapa). '
       + 'Pole „id” nadaje serwer — nie zmieniaj go, bo odwołują się do niego magazyny i kursy. Nowe pozycje dopisuj bez „id”. '
       + 'Towar: nazwa, kategoria, masa (t na jednostkę), jednostka, cena (bazowa, kr). '
-      + 'Planeta: nazwa, sektor, typ (pustynna, lodowa, oceaniczna, lesna, wulkaniczna, gazowa, miasto, bagienna, skalista — widok z powierzchni i chmury przy starcie), wspolrzedne (do skoku), specyfika — mnożniki ceny dla towarów albo kategorii, np. {"surowce": 0.6, "Zboże": 1.5} '
+      + 'Planeta: nazwa, sektor, typ (pustynna, lodowa, oceaniczna, lesna, wulkaniczna, gazowa, miasto, bagienna, skalista — widok z powierzchni i chmury przy starcie), wspolrzedne (do skoku), kontrola (nazwa kontroli lotów, np. „Imperialna Kontrola Lotów”; brak = planeta bez kontroli), specyfika — mnożniki ceny dla towarów albo kategorii, np. {"surowce": 0.6, "Zboże": 1.5} '
       + '(0.6 = tanio, bo się tam produkuje; 1.5 = drogo, bo jest popyt). Kursy wahają się codziennie o ±8%, kupno/sprzedaż różnią się o 10%.'),
     info,
     h('label', 'Towary', towary), h('br'),
     h('label', 'Planety', planety), h('br'),
-    h('label', 'Lokacje — miejsca na planetach, do których postacie mogą się przemieszczać: nazwa, planeta, typ (hangar, port, hotel, bankomat, sklep, kantyna, biuro, garaz, inne), '
+    h('label', 'Lokacje — miejsca na planetach, do których postacie mogą się przemieszczać: nazwa, planeta, typ (hangar, platforma, port, hotel, bankomat, sklep, kantyna, biuro, garaz, inne; lądowiska: hangar, platforma, port), '
       + 'x i y (km na mapie planety), publiczna (true = każdy zna; false = tylko postacie z „znane miejsca” w karcie). Hangar: jakosc 1–5 (szybkość obsługi), paliwo (zapas w %; brak = bez ograniczeń), cena_paliwa (kr za 1%). '
       + 'Sklep: oferta [{"nazwa": "...", "cena": 0}]. Budynki firm z x i y są lokacjami automatycznie.', lokacje), h('br'),
     h('label', 'Tempo czasu: sekundy rzeczywiste na minutę świata gry (1 = 30-minutowy przejazd trwa 30 s). Planety: urbanizacja brak / niska / wysoka (taksówki), taksowka = kr za km.', tempo), h('br'),
@@ -360,14 +360,29 @@ async function stanPostaci() {
   const { statki: wLocie } = await api('mg_statki_w_locie');
   const sekcjaLotow = wLocie.length ? h('div.karta',
     h('h2', `Statki w locie (${wLocie.length})`),
-    h('p.slaby', 'Start i skok uruchamiają gracze z Nawigacji (skok: współrzędne planety z katalogu). „Zakończ skok” wyprowadza statek z nadprzestrzeni przy celu; potem gracze mogą wylądować w hangarze tej planety.'),
-    h('table', h('tr', h('th', 'Statek'), h('th', 'Przy planecie'), h('th', 'Skok do'), h('th', 'Na pokładzie'), h('th', '')),
-      wLocie.map((s) => h('tr', h('td', h('b', s.nazwa), h('div.slaby', s.firma)), h('td', s.przy), h('td', s.cel || '—'), h('td', s.zaloga.join(', ') || '—'),
-        h('td', s.cel ? btn('Zakończ skok', bezpiecznie(async () => {
-          const { hangar } = await api('mg_skok_koniec', { statek: s.klucz });
-          wyczysc(glowna); await stanPostaci();
-          glowna.prepend(msg(hangar ? 'Statek wyszedł z nadprzestrzeni przy celu.' : 'Statek przy celu, ale ta planeta nie ma hangaru w lokacjach — lądowanie będzie niemożliwe.', hangar ? 'ok' : 'blad'));
-        }), '.glowny') : null))))) : null;
+    h('p.slaby', 'Start i skok uruchamiają gracze z Nawigacji (skok: współrzędne planety z katalogu). „Zakończ skok” wyprowadza statek z nadprzestrzeni przy celu. '
+      + 'Lądują gracze: autopilot na znane lądowisko, ręcznie po współrzędnych (x / y lokacji typu hangar, platforma, port) albo po przydziale od kontroli lotów, którą tu odgrywasz.'),
+    wLocie.map((s) => {
+      const tresc = h('input', { placeholder: 'odpowiedź kontroli lotów' });
+      const przydzial = h('select', h('option', { value: '' }, '— bez przydziału —'), s.ladowiska.map((l) => h('option', { value: l.klucz, selected: s.watek?.przydzial === l.klucz }, `${l.nazwa} (${l.typ}, ${l.x} / ${l.y})`)));
+      return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' },
+        h('div.rzad',
+          h('div', { style: 'flex:1' }, h('b', s.nazwa), h('span.slaby', `  ${s.firma} · przy: ${s.przy}${s.cel ? ' · SKOK DO: ' + s.cel : ''} · na pokładzie: ${s.zaloga.join(', ') || '—'}`)),
+          s.cel ? btn('Zakończ skok', bezpiecznie(async () => {
+            await api('mg_skok_koniec', { statek: s.klucz });
+            wyczysc(glowna); await stanPostaci();
+            glowna.prepend(msg('Statek wyszedł z nadprzestrzeni przy celu.', 'ok'));
+          }), '.glowny') : null),
+        !s.cel ? h('div', { style: 'margin-top:8px' },
+          h('div.slaby', s.kontrola ? `Kontrola lotów: ${s.kontrola}${s.watek?.czeka ? ' · CZEKAJĄ NA ODPOWIEDŹ' : ''}` : 'Planeta bez kontroli lotów — gracze lądują sami (lista znanych lądowisk albo współrzędne).'),
+          (s.watek?.wiadomosci || []).slice(-6).map((x) => h('div', { style: 'margin:4px 0' }, h('span.slaby', `${new Date(x.czas).toLocaleTimeString('pl-PL')} ${x.autor}: `), x.tresc)),
+          s.kontrola ? h('div.rzad', { style: 'margin-top:6px' }, h('div', { style: 'flex:2;min-width:220px' }, tresc), h('div', { style: 'flex:1;min-width:180px' }, przydzial),
+            btn('Odpowiedz jako kontrola', bezpiecznie(async () => {
+              await api('mg_lacznosc_odpowiedz', { statek: s.klucz, tresc: tresc.value, przydzial: przydzial.value });
+              wyczysc(glowna); await stanPostaci();
+              glowna.prepend(msg('Nadano odpowiedź kontroli lotów.', 'ok'));
+            }), '.glowny')) : null) : null);
+    })) : null;
   glowna.append(
     sekcjaLotow,
     h('datalist#mg-planety', planetyKatalogu.map((n) => h('option', { value: n }))),

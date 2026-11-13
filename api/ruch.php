@@ -18,7 +18,9 @@ const TAKSOWKI = [
     'wysoka' => ['czekanie' => 3, 'kmh' => 120, 'stawka' => 4],
     'niska' => ['czekanie' => 20, 'kmh' => 90, 'stawka' => 6],
 ];
-const TYPY_LOKACJI = ['hangar', 'port', 'hotel', 'bankomat', 'sklep', 'kantyna', 'biuro', 'garaz', 'inne'];
+const TYPY_LOKACJI = ['hangar', 'platforma', 'port', 'hotel', 'bankomat', 'sklep', 'kantyna', 'biuro', 'garaz', 'inne'];
+const LADOWISKA = ['hangar', 'platforma', 'port'];
+const TOLERANCJA_KM = 0.25; // ręczne lądowanie: jak blisko lądowiska muszą być wpisane współrzędne
 
 // Klucz lokacji z nazwy albo klucza (dla edytorów MG). Pusty tekst = brak lokacji.
 function ruch_klucz(array $lokacje, string $wartosc): string
@@ -76,6 +78,46 @@ function ruch_na_pokladzie(string $klucz): array
     return $w;
 }
 
+// Lądowiska, które autopilot zna przy planecie statku: znane postaci (publiczne, firmowe, z karty)
+// oraz przydzielone przez kontrolę lotów.
+function ruch_ladowiska(string $uid, array $karta, array $statek, array $lok): array
+{
+    $planeta = $statek['lokalizacja'] ?? '';
+    $w = array_filter(ruch_znane($uid, $karta, $lok, $planeta), fn($l) => in_array($l['typ'], LADOWISKA, true));
+    $przydzial = wczytaj('lacznosc', [])['s:' . $statek['firma'] . ':' . $statek['id']]['przydzial'] ?? '';
+    if ($przydzial !== '' && isset($lok[$przydzial]) && $lok[$przydzial]['planeta'] === $planeta) $w[$przydzial] = $lok[$przydzial] + ['przydzial' => true];
+    return $w;
+}
+
+// ----- łączność z kontrolą lotów -----
+// Wątek radiowy statku przy danej planecie. Na razie odpowiada MG (panel). Odpowiedzi postaci
+// niezależnych z modelu językowego można później podpiąć w jednym miejscu: lacznosc_odpowiedz_npc().
+
+function lacznosc_nowa(string $statek, array $planeta): void
+{
+    $kontrola = trim((string) ($planeta['kontrola'] ?? ''));
+    zmien('lacznosc', function (&$l) use ($statek, $planeta, $kontrola) {
+        $l[$statek] = ['planeta' => $planeta['id'], 'kontrola' => $kontrola, 'przydzial' => '', 'wiadomosci' => [], 'czeka' => $kontrola !== ''];
+        if ($kontrola !== '') {
+            $l[$statek]['wiadomosci'][] = ['od' => 'kontrola', 'autor' => $kontrola, 'czas' => date('c'),
+                'tresc' => 'Tu ' . $kontrola . '. Wykryliśmy wasz statek. Podajcie kod identyfikacyjny i cel wizyty, czekajcie na przydział lądowiska.'];
+        }
+    });
+}
+
+function lacznosc_zamknij(string $statek): void
+{
+    zmien('lacznosc', function (&$l) use ($statek) {
+        unset($l[$statek]);
+    });
+}
+
+// Miejsce na przyszłe odpowiedzi NPC (model językowy). Dziś nic nie robi: odpowiada MG.
+function lacznosc_odpowiedz_npc(string $statek, array $watek): ?array
+{
+    return null;
+}
+
 function ruch_tempo(): float
 {
     return max(0.05, min(60, (float) (wczytaj('katalog', [])['ustawienia']['tempo'] ?? 1)));
@@ -131,9 +173,13 @@ function ruch_gdzie(array $karta, array $lokacje): ?array
         foreach (wczytaj('firmy', ['firmy' => []])['firmy'] as $f) {
             if ($f['id'] !== $fid) continue;
             foreach ($f['dane']['flota'] as $s) {
-                if ($s['id'] === $sid && isset($lokacje[$s['hangar'] ?? ''])) {
-                    return ['klucz' => $klucz, 'nazwa' => 'Pokład: ' . $s['nazwa'], 'typ' => 'poklad'] + array_intersect_key($lokacje[$s['hangar']], ['x' => 1, 'y' => 1, 'planeta' => 1]);
+                if ($s['id'] !== $sid) continue;
+                $baza = ['klucz' => $klucz, 'nazwa' => 'Pokład: ' . $s['nazwa'], 'typ' => 'poklad'];
+                // Na ziemi: pozycja hangaru. W locie (albo bez lądowiska): tylko planeta, przy której jest statek.
+                if (empty($s['w_locie']) && isset($lokacje[$s['hangar'] ?? ''])) {
+                    return $baza + array_intersect_key($lokacje[$s['hangar']], ['x' => 1, 'y' => 1, 'planeta' => 1]);
                 }
+                if (($s['lokalizacja'] ?? '') !== '') return $baza + ['x' => 0.0, 'y' => 0.0, 'planeta' => $s['lokalizacja']];
             }
         }
         return null;
@@ -277,7 +323,7 @@ function ruch_obsluga(array $statek, array $hangar): array
         'brak' => $brak, 'koszt' => $brak * $cena, 'jakosc' => $jakosc];
 }
 
-const AKCJE_RUCHU = ['nawigacja', 'trasa', 'podroz', 'bankomat', 'sklep_kup', 'statek_przygotuj', 'na_poklad', 'zejdz_z_pokladu', 'start', 'skok', 'ladowanie'];
+const AKCJE_RUCHU = ['nawigacja', 'trasa', 'podroz', 'bankomat', 'sklep_kup', 'statek_przygotuj', 'na_poklad', 'zejdz_z_pokladu', 'start', 'skok', 'ladowanie', 'lacznosc_wyslij'];
 const CZAS_WZNOSZENIA_MS = 300000;
 
 function obsluz_ruch(string $akcja, bool $post): void
@@ -320,7 +366,13 @@ function obsluz_ruch(string $akcja, bool $post): void
                 if (str_starts_with($gdzie['klucz'] ?? '', 's:')) {
                     $st = ruch_statek($gdzie['klucz']);
                     $sc = wczytaj('sceny', [])[$u['id']] ?? [];
+                    $pl = ruch_planeta($st['lokalizacja'] ?? '');
+                    $watek = wczytaj('lacznosc', [])[$gdzie['klucz']] ?? null;
                     $wynik['poklad'] = [
+                        'ladowiska' => array_values(array_map(fn($l) => ['klucz' => $l['klucz'], 'nazwa' => $l['nazwa'], 'typ' => $l['typ'], 'przydzial' => !empty($l['przydzial'])],
+                            !empty($st['w_locie']) ? ruch_ladowiska($u['id'], $karta, $st, $lok) : [])),
+                        'kontrola' => trim((string) ($pl['kontrola'] ?? '')),
+                        'watek' => $watek ? ['wiadomosci' => array_slice($watek['wiadomosci'], -12), 'czeka' => !empty($watek['czeka'])] : null,
                         'nazwa' => $st['nazwa'] ?? '?', 'w_locie' => !empty($st['w_locie']), 'cel' => $st['cel'] ?? '',
                         'gotowy' => !empty($st['przygotowanie']) && time() >= $st['przygotowanie']['gotowy'], 'paliwo' => (int) ($st['paliwo'] ?? 0),
                         'scena' => $sc['scena'] ?? '', 'od_zmiany_ms' => teraz_ms() - (int) ($sc['zmieniono'] ?? 0), 'wznoszenie_ms' => CZAS_WZNOSZENIA_MS,
@@ -580,6 +632,7 @@ function obsluz_ruch(string $akcja, bool $post): void
             ruch_zmien_statek($klucz, function (&$s) use ($cel) {
                 $s['cel'] = $cel['id'];
             });
+            lacznosc_zamknij($klucz);
             $scena = ['scena' => 'wejscie', 'planeta' => $cel['typ'] ?? 'skalista', 'odleglosc' => 'srednio',
                 'miejsce' => $cel['nazwa'], 'opis' => 'Kurs: ' . $cel['nazwa'], 'wnetrze' => '', 'zmieniono' => teraz_ms()];
             $zaloga = ruch_na_pokladzie($klucz);
@@ -588,19 +641,82 @@ function obsluz_ruch(string $akcja, bool $post): void
             });
             odpowiedz(['ok' => true, 'cel' => $cel['nazwa']]);
 
+        case 'lacznosc_wyslij':
+            // Gracz wywołuje kontrolę lotów planety, przy której jest (jeśli planeta ją ma).
+            if (!$post) blad('Zła metoda.', 405);
+            $u = wymagaj_logowania();
+            $klucz = karta($u['id'])['pozycja']['lokacja'] ?? '';
+            $statek = ruch_statek($klucz);
+            if (!$statek || empty($statek['w_locie']) || !empty($statek['cel'])) blad('Łączność z kontrolą lotów jest możliwa tylko na orbicie.');
+            $pl = ruch_planeta($statek['lokalizacja'] ?? '');
+            if (trim((string) ($pl['kontrola'] ?? '')) === '') blad('Brak odpowiedzi. Ta planeta nie ma kontroli lotów.');
+            $tresc = mb_substr(trim((string) (wejscie()['tresc'] ?? '')), 0, 500) ?: 'Prosimy o przydział lądowiska.';
+            $watek = zmien('lacznosc', function (&$l) use ($klucz, $pl, $tresc, $u, $statek) {
+                if (($l[$klucz]['planeta'] ?? '') !== $pl['id']) {
+                    $l[$klucz] = ['planeta' => $pl['id'], 'kontrola' => trim($pl['kontrola']), 'przydzial' => '', 'wiadomosci' => []];
+                }
+                $l[$klucz]['wiadomosci'][] = ['od' => 'statek', 'autor' => $u['postac'] . ' (' . $statek['nazwa'] . ')', 'tresc' => $tresc, 'czas' => date('c')];
+                $l[$klucz]['czeka'] = true;
+                return $l[$klucz];
+            });
+            // Przyszłe NPC: jeśli odpowie, dopisujemy od razu.
+            $npc = lacznosc_odpowiedz_npc($klucz, $watek);
+            if ($npc) {
+                zmien('lacznosc', function (&$l) use ($klucz, $npc) {
+                    $l[$klucz]['wiadomosci'][] = $npc + ['od' => 'kontrola', 'czas' => date('c')];
+                    $l[$klucz]['czeka'] = false;
+                });
+            }
+            odpowiedz(['ok' => true]);
+
         // ----- panel MG -----
+
+        case 'mg_lacznosc_odpowiedz':
+            // MG odpowiada jako kontrola lotów i opcjonalnie przydziela lądowisko.
+            if (!$post) blad('Zła metoda.', 405);
+            wymagaj_mg();
+            $w = wejscie();
+            $klucz = (string) ($w['statek'] ?? '');
+            $statek = ruch_statek($klucz);
+            if (!$statek || empty($statek['w_locie'])) blad('Ten statek nie jest w locie.');
+            $pl = ruch_planeta($statek['lokalizacja'] ?? '');
+            $przydzial = (string) ($w['przydzial'] ?? '');
+            $lok = ruch_lokacje();
+            if ($przydzial !== '' && (!isset($lok[$przydzial]) || $lok[$przydzial]['planeta'] !== $pl['id'])) blad('To lądowisko nie leży na tej planecie.');
+            $tresc = mb_substr(trim((string) ($w['tresc'] ?? '')), 0, 800);
+            if ($tresc === '' && $przydzial !== '') $tresc = 'Przydział: ' . $lok[$przydzial]['nazwa'] . '. Lądowanie dozwolone.';
+            if ($tresc === '') blad('Wiadomość jest pusta.');
+            zmien('lacznosc', function (&$l) use ($klucz, $pl, $tresc, $przydzial) {
+                if (($l[$klucz]['planeta'] ?? '') !== $pl['id']) {
+                    $l[$klucz] = ['planeta' => $pl['id'], 'kontrola' => trim((string) ($pl['kontrola'] ?? '')), 'przydzial' => '', 'wiadomosci' => []];
+                }
+                $l[$klucz]['wiadomosci'][] = ['od' => 'kontrola', 'autor' => $l[$klucz]['kontrola'] ?: 'Kontrola lotów', 'tresc' => $tresc, 'czas' => date('c')];
+                if ($przydzial !== '') $l[$klucz]['przydzial'] = $przydzial;
+                $l[$klucz]['czeka'] = false;
+            });
+            odpowiedz(['ok' => true]);
 
         case 'mg_statki_w_locie':
             wymagaj_mg();
             $pl = array_column(katalog()['planety'], 'nazwa', 'id');
             $postacie = bank_postacie();
+            $lokacje = ruch_lokacje();
+            $lacznosc = wczytaj('lacznosc', []);
             $lista = [];
             foreach (wczytaj('firmy', ['firmy' => []])['firmy'] as $f) {
                 foreach ($f['dane']['flota'] ?? [] as $s) {
                     if (empty($s['w_locie'])) continue;
                     $klucz = 's:' . $f['id'] . ':' . $s['id'];
+                    $planeta = ruch_planeta($s['lokalizacja'] ?? '');
+                    $lad = [];
+                    foreach ($lokacje as $k => $l) {
+                        if ($l['planeta'] === ($s['lokalizacja'] ?? '') && in_array($l['typ'], LADOWISKA, true)) $lad[] = ['klucz' => $k, 'nazwa' => $l['nazwa'], 'typ' => $l['typ'], 'x' => $l['x'], 'y' => $l['y']];
+                    }
+                    $watek = $lacznosc[$klucz] ?? null;
                     $lista[] = ['klucz' => $klucz, 'nazwa' => $s['nazwa'], 'firma' => $f['nazwa'], 'przy' => $pl[$s['lokalizacja'] ?? ''] ?? '?',
-                        'cel' => $pl[$s['cel'] ?? ''] ?? '', 'zaloga' => array_map(fn($uid) => $postacie[$uid] ?? '?', ruch_na_pokladzie($klucz))];
+                        'cel' => $pl[$s['cel'] ?? ''] ?? '', 'zaloga' => array_map(fn($uid) => $postacie[$uid] ?? '?', ruch_na_pokladzie($klucz)),
+                        'kontrola' => trim((string) ($planeta['kontrola'] ?? '')), 'ladowiska' => $lad,
+                        'watek' => $watek ? ['wiadomosci' => $watek['wiadomosci'], 'czeka' => !empty($watek['czeka']), 'przydzial' => $watek['przydzial']] : null];
                 }
             }
             odpowiedz(['statki' => $lista]);
@@ -614,16 +730,14 @@ function obsluz_ruch(string $akcja, bool $post): void
             $statek = ruch_statek($klucz);
             if (!$statek || empty($statek['cel'])) blad('Ten statek nie jest w skoku.');
             $cel = ruch_planeta($statek['cel']);
-            $hangar = '';
-            foreach (ruch_lokacje() as $k => $l) {
-                if ($l['planeta'] === $cel['id'] && in_array($l['typ'], ['hangar', 'port'], true) && $hangar === '') $hangar = $k;
-            }
-            ruch_zmien_statek($klucz, function (&$s) use ($cel, $hangar) {
+            ruch_zmien_statek($klucz, function (&$s) use ($cel) {
                 $s['lokalizacja'] = $cel['id'];
-                if ($hangar !== '') $s['hangar'] = $hangar;
+                $s['hangar'] = ''; // lądowisko trzeba wybrać, wpisać albo dostać od kontroli lotów
                 $s['paliwo'] = max(0, (int) ($s['paliwo'] ?? 100) - 20);
                 unset($s['cel']);
             });
+            lacznosc_nowa($klucz, $cel);
+            $hangar = true;
             $zaloga = ruch_na_pokladzie($klucz);
             $scena = ['scena' => 'wyjscie', 'planeta' => $cel['typ'] ?? 'skalista', 'odleglosc' => 'srednio',
                 'miejsce' => $cel['nazwa'], 'opis' => 'Wyjście z nadprzestrzeni', 'wnetrze' => '', 'zmieniono' => teraz_ms()];
@@ -637,17 +751,44 @@ function obsluz_ruch(string $akcja, bool $post): void
             odpowiedz(['ok' => true, 'hangar' => $hangar !== '']);
 
         case 'ladowanie':
-            // Powrót do hangaru, z którego statek wystartował (gdy jest przy tej samej planecie).
+            // Automat: lądowisko z listy znanych (albo przydzielone przez kontrolę lotów).
+            // Ręcznie: współrzędne „x / y” lądowiska na tej planecie (nie musi być znane).
             if (!$post) blad('Zła metoda.', 405);
             $u = wymagaj_logowania();
-            $klucz = karta($u['id'])['pozycja']['lokacja'] ?? '';
+            $karta = karta($u['id']);
+            $klucz = $karta['pozycja']['lokacja'] ?? '';
             $statek = ruch_statek($klucz);
             if (!$statek || empty($statek['w_locie'])) blad('Statek nie jest w locie.');
             if (!empty($statek['cel'])) blad('Statek jest w drodze do innego systemu.');
-            $hangar = ruch_lokacje()[$statek['hangar'] ?? ''] ?? null;
-            if (!$hangar || $hangar['planeta'] !== ($statek['lokalizacja'] ?? '')) blad('Kontrola lotów nie przydzieliła miejsca w żadnym hangarze na tej planecie.');
-            ruch_zmien_statek($klucz, function (&$s) {
+            $sc = wczytaj('sceny', [])[$u['id']] ?? [];
+            if (($sc['scena'] ?? '') === 'start' && teraz_ms() - (int) $sc['zmieniono'] < CZAS_WZNOSZENIA_MS) blad('Statek wciąż się wznosi.');
+            $w = wejscie();
+            $lok = ruch_lokacje();
+            $planeta = $statek['lokalizacja'] ?? '';
+            if (($w['tryb'] ?? 'auto') === 'reczne') {
+                if (!preg_match_all('/-?\d+(?:[.,]\d+)?/', (string) ($w['wspolrzedne'] ?? ''), $m) || count($m[0]) < 2) blad('Podaj współrzędne w postaci: x / y.');
+                [$x, $y] = array_map(fn($v) => (float) str_replace(',', '.', $v), array_slice($m[0], 0, 2));
+                $cel = null;
+                foreach ($lok as $l) {
+                    if ($l['planeta'] === $planeta && in_array($l['typ'], LADOWISKA, true) && ruch_odleglosc($l, ['x' => $x, 'y' => $y]) <= TOLERANCJA_KM) $cel = $l;
+                }
+                if (!$cel) blad('Pod tymi współrzędnymi nie ma lądowiska. Podejście przerwane.');
+            } else {
+                $cel = ruch_ladowiska($u['id'], $karta, $statek, $lok)[(string) ($w['cel'] ?? '')] ?? null;
+                if (!$cel) blad('Autopilot nie zna tego lądowiska.');
+            }
+            ruch_zmien_statek($klucz, function (&$s) use ($cel) {
                 $s['w_locie'] = false;
+                $s['hangar'] = $cel['klucz'];
+            });
+            lacznosc_zamknij($klucz);
+            // Załoga zapamiętuje lądowisko (autopilot zna je przy następnej wizycie).
+            $zaloga = ruch_na_pokladzie($klucz);
+            zmien('karty', function (&$k) use ($zaloga, $cel) {
+                foreach ($zaloga as $uid) {
+                    $znane = $k[$uid]['znane'] ?? [];
+                    if (!in_array($cel['klucz'], $znane, true)) $k[$uid]['znane'][] = $cel['klucz'];
+                }
             });
             $zaloga = ruch_na_pokladzie($klucz);
             zmien('karty', function (&$k) use ($zaloga) {

@@ -4,7 +4,7 @@ import { h, wyczysc } from '../rdzen/narzedzia.js';
 import { api } from '../rdzen/api.js';
 
 const TYPY = {
-  hangar: ['Hangar', '⌂'], port: ['Port kosmiczny', '✈'], hotel: ['Hotel', '▤'], bankomat: ['Bankomat', '¤'], sklep: ['Sklep', '◫'],
+  hangar: ['Hangar', '⌂'], platforma: ['Platforma lądowania', '▬'], port: ['Port kosmiczny', '✈'], hotel: ['Hotel', '▤'], bankomat: ['Bankomat', '¤'], sklep: ['Sklep', '◫'],
   kantyna: ['Kantyna', '◍'], biuro: ['Biuro', '▦'], garaz: ['Garaż', '▭'], inne: ['Miejsce', '•'], poklad: ['Pokład statku', '△'],
 };
 
@@ -61,7 +61,10 @@ export default {
     }
 
     // Liczniki odświeżane co sekundę bez przeładowania całego widoku.
+    let odswiezanie = null;
     function tykaj() {
+      clearInterval(odswiezanie);
+      if (d.poklad?.w_locie) odswiezanie = setInterval(() => { if (!w.contains(document.activeElement) || document.activeElement.tagName !== 'INPUT') wczytaj(); }, 8000);
       clearInterval(zegar);
       zegar = setInterval(() => {
         let koniec = false;
@@ -152,11 +155,48 @@ export default {
         return panel(paliwo, h('p', 'Wznoszenie przez atmosferę. Na orbicie za ', h('b', { 'data-koniec': koniec, 'data-przeladuj': '1' }, odliczanie(koniec - teraz()))));
       }
       const wsp = h('input', { placeholder: 'np. R-4 · 112.07 / -33.90', spellcheck: false, autocomplete: 'off' });
-      return panel(paliwo,
-        h('p.slaby.maly-tekst', 'Statek na orbicie. Komputer nawigacyjny czeka na współrzędne skoku.'),
-        h('div.rzad', h('div.pole.rozpycha', { style: 'margin:0' }, h('label', 'Współrzędne skoku'), wsp),
-          h('button.przycisk', { style: 'align-self:flex-end', onclick: () => akcja('skok', { wspolrzedne: wsp.value }, (r) => `Obliczono skok. Kurs: ${r.cel}.`) }, 'Skok')),
-        h('div', { style: 'margin-top:12px' }, h('button.przycisk.drugi', { onclick: () => akcja('ladowanie', {}, 'Wylądowano w hangarze.') }, 'Ląduj w hangarze')));
+      return h('div',
+        panel(paliwo,
+          h('p.slaby.maly-tekst', 'Statek na orbicie. Komputer nawigacyjny czeka na współrzędne skoku.'),
+          h('div.rzad', h('div.pole.rozpycha', { style: 'margin:0' }, h('label', 'Współrzędne skoku'), wsp),
+            h('button.przycisk', { style: 'align-self:flex-end', onclick: () => akcja('skok', { wspolrzedne: wsp.value }, (r) => `Obliczono skok. Kurs: ${r.cel}.`) }, 'Skok'))),
+        ladowanie(p),
+        lacznosc(p));
+    }
+
+    // Lądowanie: autopilot (znane lądowiska / przydział kontroli) albo ręcznie po współrzędnych.
+    function ladowanie(p) {
+      const wybor = h('select', { style: 'min-height:44px;background:rgba(0,0,0,.35);border:1px solid var(--linia);border-radius:6px;padding:0 10px;width:100%' },
+        p.ladowiska.map((l) => h('option', { value: l.klucz }, `${l.przydzial ? '★ PRZYDZIAŁ: ' : ''}${l.nazwa} (${(TYPY[l.typ] || TYPY.inne)[0].toLowerCase()})`)));
+      const reczne = h('input', { placeholder: 'x / y   np. 12.40 / -3.15', spellcheck: false, autocomplete: 'off', inputmode: 'decimal' });
+      return h('div.panel',
+        h('h2', 'Lądowanie'),
+        h('div.dwie-kolumny', { style: 'grid-template-columns:1fr 1fr' },
+          h('div',
+            h('div.slaby.maly-tekst', { style: 'margin-bottom:6px' }, 'Autopilot — znane lądowiska'),
+            p.ladowiska.length
+              ? h('div', wybor, h('button.przycisk', { style: 'margin-top:8px', onclick: () => akcja('ladowanie', { tryb: 'auto', cel: wybor.value }, 'Autopilot posadził statek.') }, 'Ląduj automatycznie'))
+              : h('div.slaby', 'Autopilot nie zna tu żadnego lądowiska.')),
+          h('div',
+            h('div.slaby.maly-tekst', { style: 'margin-bottom:6px' }, 'Ręcznie — współrzędne lądowiska'),
+            h('div.pole', { style: 'margin:0' }, reczne),
+            h('button.przycisk.drugi', { style: 'margin-top:8px', onclick: () => akcja('ladowanie', { tryb: 'reczne', wspolrzedne: reczne.value }, 'Lądowanie ręczne zakończone.') }, 'Podejście ręczne'))));
+    }
+
+    // Łączność radiowa z kontrolą lotów planety.
+    function lacznosc(p) {
+      if (!p.kontrola) return h('div.panel', h('h2', 'Kontrola lotów'), h('div.slaby', 'Na tej częstotliwości cisza. Planeta nie ma kontroli lotów.'));
+      const tresc = h('input', { placeholder: 'np. Frachtowiec Szary Wróbel, prosimy o lądowisko. Ładunek: zboże.' });
+      const wiad = p.watek?.wiadomosci || [];
+      return h('div.panel',
+        h('div.rzad', h('h2.rozpycha', { style: 'margin:0' }, p.kontrola), p.watek?.czeka ? h('span.maly-tekst.status-niepewny', 'oczekiwanie na odpowiedź') : null),
+        wiad.length
+          ? h('ul.lista', { style: 'margin-top:8px' }, wiad.map((x) => h('li',
+            h('div.slaby.maly-tekst', `${new Date(x.czas).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })} · ${x.autor}`),
+            h('div', { style: x.od === 'kontrola' ? 'color:var(--akcent)' : '' }, x.tresc))))
+          : h('div.slaby', { style: 'margin-top:8px' }, 'Brak łączności. Możesz czekać na wywołanie albo nadać pierwszy.'),
+        h('div.rzad', { style: 'margin-top:10px' }, h('div.pole.rozpycha', { style: 'margin:0' }, tresc),
+          h('button.przycisk', { onclick: () => akcja('lacznosc_wyslij', { tresc: tresc.value }, 'Nadano.') }, wiad.length ? 'Nadaj' : 'Wywołaj kontrolę lotów')));
     }
 
     // Statki firm postaci na tej planecie: przygotowanie do lotu.
@@ -243,6 +283,6 @@ export default {
 
     // Skrót z pulpitu: po wczytaniu od razu trasa do wskazanego miejsca.
     wczytaj().then(() => { if (ctx.parametr?.trasa && d?.gdzie && !d.podroz) trasa(ctx.parametr.trasa, ctx.parametr.nazwa); });
-    return () => clearInterval(zegar);
+    return () => { clearInterval(zegar); clearInterval(odswiezanie); };
   },
 };
