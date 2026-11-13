@@ -485,3 +485,11 @@ html.z-tlem .szybka { background: rgba(20, 14, 4, 0.7); backdrop-filter: blur(3p
 .nawi-znak.maly { width: 32px; height: 32px; font-size: 16px; }
 .licznik-paliwa { display: inline-block; width: 120px; height: 8px; border: 1px solid var(--linia); border-radius: 4px; overflow: hidden; vertical-align: middle; }
 .licznik-paliwa i { display: block; height: 100%; background: var(--akcent-2); }
+
+/* Przyciemnienie góry i dołu, gdy w tle jest jasny krajobraz albo chmury — napisy pulpitu zostają czytelne. */
+html.z-tlem #ekran::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, rgba(2, 5, 8, 0.62) 0, rgba(2, 5, 8, 0.25) 38%, rgba(2, 5, 8, 0) 60%, rgba(2, 5, 8, 0.35) 100%);
+}
+#scena { z-index: -1; }
+#ekran { isolation: isolate; }

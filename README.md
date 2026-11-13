@@ -55,7 +55,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
-| Nawigacja | gdzie jestem, dokąd i czym (pieszo, taksówka, pojazdy), przygotowanie statku do lotu, bankomat, sklep | nowe |
+| Nawigacja | gdzie jestem, dokąd i czym (pieszo, taksówka, pojazdy), przygotowanie statku do lotu, start, współrzędne skoku, lądowanie, bankomat, sklep | nowe |
 | Karta postaci | tożsamość, status w rejestrach, dokumenty, pozycja (planeta, współrzędne, miejsce, budynek), statystyki, reputacja, kontakty, ekwipunek, notatnik | nowe |
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
@@ -283,6 +283,31 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
   ekwipunku.
 - **Szybkie akcje na pulpicie:** podróż w toku z odliczaniem, „Przygotuj [statek] do lotu”
   i stan obsługi, „Wejdź na pokład”, najbliższy bankomat (do 5 km), taksówka.
+
+## Widok z planety, start i skok
+
+- **Widok za oknem:** postać stojąca w lokacji na planecie widzi na pulpicie krajobraz tej
+  planety. Krajobraz zależy od pola `typ` planety w katalogu: pustynna (wydmy), lodowa
+  (szczyty), oceaniczna (morze z wyspą), leśna (wzgórza z lasem), wulkaniczna (lawa),
+  gazowa (morze chmur z miastem w obłokach), miasto (wieżowce), bagienna, skalista.
+  Od 21:00 do 6:00 (zegar tabletu) jest noc z gwiazdami i światłami okien. Rama zależy od
+  miejsca: okno ze szprosami (biuro, hotel, kantyna, sklep, garaż), wrota hangaru (hangar,
+  port, pokład) albo otwarty widok (bankomat, inne). Scena ustawiona przez MG wygrywa,
+  dopóki postać nie zmieni miejsca (liczy się nowsza zmiana).
+- **Start:** na pokładzie statku po obsłudze naziemnej Nawigacja pokazuje „Start”. Wszyscy na
+  pokładzie widzą wznoszenie: przez 5 minut chmury w kolorze atmosfery planety, potem niebo
+  ciemnieje, pojawiają się gwiazdy, a od dołu wyłania się planeta. Start zużywa 5% paliwa.
+  Licznik liczy od chwili startu, więc tablet włączony później jest w tym samym miejscu lotu.
+- **Orbita:** po wznoszeniu Nawigacja czeka na **współrzędne skoku** albo pozwala wrócić
+  („Ląduj w hangarze”). Na razie współrzędne porównywane są z polem `wspolrzedne` planet
+  w katalogu (wielkość liter, spacje i znaki inne niż cyfry, litery, kropka i minus nie mają
+  znaczenia). Pełne zasady astronawigacji dopiszemy razem z mapą.
+- **Skok:** dobre współrzędne uruchamiają animację skoku i tunel u wszystkich na pokładzie.
+  Wyjście z nadprzestrzeni wywołuje MG (panel → Stan postaci → Statki w locie → **Zakończ
+  skok**). Statek pojawia się przy celu (−20% paliwa) z przydziałem do pierwszego
+  hangaru albo portu tej planety, załoga widzi wyjście z planetą, a potem może lądować.
+- W locie nie da się zejść z pokładu, jechać ani iść. Pulpit pokazuje szybką akcję
+  z odliczaniem wznoszenia i informację o orbicie albo nadprzestrzeni.
 
 ## Konta i bezpieczeństwo
 

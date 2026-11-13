@@ -10,7 +10,7 @@ const STATUS = {
   notowany: ['Notowany', 'status-niepewny'],
   poszukiwany: ['POSZUKIWANY', 'status-nieobecny'],
 };
-const SCENY = { kosmos: 'w przestrzeni', wejscie: 'skok w nadprzestrzeń', nadswietlna: 'w nadprzestrzeni', wyjscie: 'wyjście z nadprzestrzeni', orbita: 'na orbicie' };
+const SCENY = { kosmos: 'w przestrzeni', wejscie: 'skok w nadprzestrzeń', nadswietlna: 'w nadprzestrzeni', wyjscie: 'wyjście z nadprzestrzeni', orbita: 'na orbicie', powierzchnia: 'na powierzchni', start: 'start z planety' };
 
 // Numer identyfikacyjny wyliczony z id konta — stały, „urzędowy” wygląd.
 function numerId(uid) {

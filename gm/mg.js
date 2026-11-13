@@ -231,8 +231,8 @@ const WZOR_LOKACJI = [
   { nazwa: 'Melina Huttów', planeta: 'Zephyria', typ: 'sklep', x: 22.5, y: -14, publiczna: false, oferta: [{ nazwa: 'Blaster bez numerów', cena: 900 }] },
 ];
 const WZOR_PLANET = [
-  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', urbanizacja: 'wysoka', taksowka: 4, specyfika: { 'żywność': 0.7, technika: 1.3 } },
-  { nazwa: 'Tatooine', sektor: 'Arkanis', specyfika: { 'żywność': 1.6, paliwo: 0.8 } },
+  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', typ: 'oceaniczna', wspolrzedne: 'Z-12 · 044.10 / 017.32', urbanizacja: 'wysoka', taksowka: 4, specyfika: { 'żywność': 0.7, technika: 1.3 } },
+  { nazwa: 'Tatooine', sektor: 'Arkanis', typ: 'pustynna', wspolrzedne: 'R-16 · 112.07 / -33.90', urbanizacja: 'niska', specyfika: { 'żywność': 1.6, paliwo: 0.8 } },
 ];
 
 async function katalog() {
@@ -255,7 +255,7 @@ async function katalog() {
     h('p.slaby', 'Wspólna lista dla całej gry: towary używają firmy (a później giełda), planety używa planowanie kursów (później dojdzie mapa). '
       + 'Pole „id” nadaje serwer — nie zmieniaj go, bo odwołują się do niego magazyny i kursy. Nowe pozycje dopisuj bez „id”. '
       + 'Towar: nazwa, kategoria, masa (t na jednostkę), jednostka, cena (bazowa, kr). '
-      + 'Planeta: nazwa, sektor, specyfika — mnożniki ceny dla towarów albo kategorii, np. {"surowce": 0.6, "Zboże": 1.5} '
+      + 'Planeta: nazwa, sektor, typ (pustynna, lodowa, oceaniczna, lesna, wulkaniczna, gazowa, miasto, bagienna, skalista — widok z powierzchni i chmury przy starcie), wspolrzedne (do skoku), specyfika — mnożniki ceny dla towarów albo kategorii, np. {"surowce": 0.6, "Zboże": 1.5} '
       + '(0.6 = tanio, bo się tam produkuje; 1.5 = drogo, bo jest popyt). Kursy wahają się codziennie o ±8%, kupno/sprzedaż różnią się o 10%.'),
     info,
     h('label', 'Towary', towary), h('br'),
@@ -291,7 +291,10 @@ const SCENY = {
   nadswietlna: 'Lot w nadświetlnej (tunel)',
   wyjscie: 'Wyjście z nadświetlnej → planeta',
   orbita: 'Orbita planety',
+  powierzchnia: 'Na powierzchni (widok z okna / hangaru)',
+  start: 'Start z planety (5 min chmur → orbita)',
 };
+const WNETRZA = { '': 'na zewnątrz', biuro: 'okno biura', hotel: 'okno hotelu', kantyna: 'okno kantyny', hangar: 'wrota hangaru', port: 'port kosmiczny' };
 const PLANETY = {
   pustynna: 'pustynna', lodowa: 'lodowa', oceaniczna: 'oceaniczna', lesna: 'leśna', wulkaniczna: 'wulkaniczna',
   gazowa: 'gazowy olbrzym', miasto: 'miasto-planeta', bagienna: 'bagienna', skalista: 'skalista',
@@ -314,6 +317,7 @@ async function stanPostaci() {
     odleglosc: wybor(ODLEGLOSCI, 'srednio'),
     miejsce: h('input', { list: 'mg-planety', placeholder: 'np. Kashyyyk' }),
     opis: h('input', { placeholder: 'np. Kurs: Kashyyyk · ETA 2 h' }),
+    wnetrze: wybor(WNETRZA, ''),
   };
   const info = h('div');
   const ustaw = async (nadpisz = {}) => {
@@ -352,7 +356,20 @@ async function stanPostaci() {
     }
   };
 
+  // Statki w locie (start, orbita, skok): zakończenie skoku przy celu.
+  const { statki: wLocie } = await api('mg_statki_w_locie');
+  const sekcjaLotow = wLocie.length ? h('div.karta',
+    h('h2', `Statki w locie (${wLocie.length})`),
+    h('p.slaby', 'Start i skok uruchamiają gracze z Nawigacji (skok: współrzędne planety z katalogu). „Zakończ skok” wyprowadza statek z nadprzestrzeni przy celu; potem gracze mogą wylądować w hangarze tej planety.'),
+    h('table', h('tr', h('th', 'Statek'), h('th', 'Przy planecie'), h('th', 'Skok do'), h('th', 'Na pokładzie'), h('th', '')),
+      wLocie.map((s) => h('tr', h('td', h('b', s.nazwa), h('div.slaby', s.firma)), h('td', s.przy), h('td', s.cel || '—'), h('td', s.zaloga.join(', ') || '—'),
+        h('td', s.cel ? btn('Zakończ skok', bezpiecznie(async () => {
+          const { hangar } = await api('mg_skok_koniec', { statek: s.klucz });
+          wyczysc(glowna); await stanPostaci();
+          glowna.prepend(msg(hangar ? 'Statek wyszedł z nadprzestrzeni przy celu.' : 'Statek przy celu, ale ta planeta nie ma hangaru w lokacjach — lądowanie będzie niemożliwe.', hangar ? 'ok' : 'blad'));
+        }), '.glowny') : null))))) : null;
   glowna.append(
+    sekcjaLotow,
     h('datalist#mg-planety', planetyKatalogu.map((n) => h('option', { value: n }))),
     h('div.karta',
       h('h2', 'Kto?'),
@@ -377,7 +394,8 @@ async function stanPostaci() {
     h('div.karta',
       h('h2', 'Dokładnie'),
       info,
-      h('div.siatka', pole('Scena', f.scena), pole('Typ planety', f.planeta), pole('Odległość od planety', f.odleglosc), pole('Miejsce', f.miejsce), pole('Opis na pulpicie', f.opis)),
+      h('div.siatka', pole('Scena', f.scena), pole('Typ planety', f.planeta), pole('Odległość od planety', f.odleglosc), pole('Miejsce', f.miejsce), pole('Opis na pulpicie', f.opis), pole('Widok z (dla „na powierzchni”)', f.wnetrze)),
+      h('p.slaby', 'Postać stojąca w lokacji na planecie sama widzi krajobraz tej planety (typ planety z katalogu). Scena ustawiona tutaj wygrywa, dopóki postać nie przemieści się dalej.'),
       h('p.slaby', 'Typ planety i odległość działają przy wyjściu z nadświetlnej i na orbicie. „Miejsce” wpływa też na rysunek powierzchni (ta sama nazwa = ta sama planeta). '
         + 'Animacje skoku i wyjścia grają na tabletach, które są włączone w chwili zmiany; tablet włączony później od razu pokazuje stan końcowy.'),
       btn('Ustaw dla zaznaczonych', () => ustaw(), '.glowny')),

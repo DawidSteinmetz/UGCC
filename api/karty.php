@@ -222,6 +222,7 @@ function obsluz_karty(string $akcja, bool $post): void
                 'miejsce' => pole('miejsce', 120) ?: ($lokacja !== '' ? $lok[$lokacja]['nazwa'] : ''),
                 'budynek' => $budynek,
                 'lokacja' => $lokacja,
+                'zmieniono' => teraz_ms(),
             ];
             zmien('karty', function (&$k) use ($uids, $poz) {
                 foreach ($uids as $uid) {

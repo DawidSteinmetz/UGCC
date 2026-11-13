@@ -32,6 +32,50 @@ function ruch_klucz(array $lokacje, string $wartosc): string
     blad("Nieznana lokacja: „{$wartosc}”. Dodaj ją w katalogu (lokacje) albo nadaj budynkowi x i y.");
 }
 
+// Statek, na którego pokładzie jest postać (klucz s:<firma>:<statek>), albo null.
+function ruch_statek(string $klucz): ?array
+{
+    if (!str_starts_with($klucz, 's:')) return null;
+    [, $fid, $sid] = explode(':', $klucz) + ['', '', ''];
+    foreach (wczytaj('firmy', ['firmy' => []])['firmy'] as $f) {
+        if ($f['id'] !== $fid) continue;
+        foreach ($f['dane']['flota'] as $s) {
+            if ($s['id'] === $sid) return $s + ['firma' => $fid];
+        }
+    }
+    return null;
+}
+
+function ruch_w_locie(string $klucz): bool
+{
+    return !empty(ruch_statek($klucz)['w_locie']);
+}
+
+// Zmiana pola statku (np. w_locie) pod blokadą.
+function ruch_zmien_statek(string $klucz, callable $fn)
+{
+    [, $fid, $sid] = explode(':', $klucz) + ['', '', ''];
+    return zmien('firmy', function (&$wsz) use ($fid, $sid, $fn) {
+        foreach ($wsz['firmy'] as &$f) {
+            if ($f['id'] !== $fid) continue;
+            foreach ($f['dane']['flota'] as &$s) {
+                if ($s['id'] === $sid) return $fn($s);
+            }
+        }
+        blad('Nie ma takiego statku.', 404);
+    }, ['firmy' => []]);
+}
+
+// Postacie na pokładzie danego statku.
+function ruch_na_pokladzie(string $klucz): array
+{
+    $w = [];
+    foreach (wczytaj('karty', []) as $uid => $k) {
+        if (($k['pozycja']['lokacja'] ?? '') === $klucz) $w[] = $uid;
+    }
+    return $w;
+}
+
 function ruch_tempo(): float
 {
     return max(0.05, min(60, (float) (wczytaj('katalog', [])['ustawienia']['tempo'] ?? 1)));
@@ -190,6 +234,7 @@ function ruch_dokoncz(string $uid): void
         $karty[$uid]['pozycja'] = array_merge($karty[$uid]['pozycja'] ?? [], [
             'lokacja' => $p['cel'], 'miejsce' => $p['cel_nazwa'], 'planeta' => $p['planeta'],
             'budynek' => str_starts_with($p['cel'], 'b:') ? substr($p['cel'], 2) : '',
+            'zmieniono' => (int) $p['koniec'] * 1000,
         ]);
         unset($karty[$uid]['podroz']);
     });
@@ -209,7 +254,7 @@ function ruch_statki(string $uid, string $planeta, array $lokacje): array
     $w = [];
     foreach (ruch_moje_firmy($uid) as $f) {
         foreach ($f['dane']['flota'] ?? [] as $s) {
-            if (($s['lokalizacja'] ?? '') !== $planeta || !isset($lokacje[$s['hangar'] ?? ''])) continue;
+            if (($s['lokalizacja'] ?? '') !== $planeta || !isset($lokacje[$s['hangar'] ?? '']) || !empty($s['w_locie'])) continue;
             $w[] = ['klucz' => $f['id'] . ':' . $s['id'], 'firma' => $f['nazwa'], 'nazwa' => $s['nazwa'], 'klasa' => $s['klasa'] ?? '',
                 'stan' => $s['stan'] ?? 'sprawny', 'paliwo' => (int) ($s['paliwo'] ?? 100), 'hangar' => $lokacje[$s['hangar']],
                 'przygotowanie' => $s['przygotowanie'] ?? null];
@@ -232,7 +277,8 @@ function ruch_obsluga(array $statek, array $hangar): array
         'brak' => $brak, 'koszt' => $brak * $cena, 'jakosc' => $jakosc];
 }
 
-const AKCJE_RUCHU = ['nawigacja', 'trasa', 'podroz', 'bankomat', 'sklep_kup', 'statek_przygotuj', 'na_poklad', 'zejdz_z_pokladu'];
+const AKCJE_RUCHU = ['nawigacja', 'trasa', 'podroz', 'bankomat', 'sklep_kup', 'statek_przygotuj', 'na_poklad', 'zejdz_z_pokladu', 'start', 'skok', 'ladowanie'];
+const CZAS_WZNOSZENIA_MS = 300000;
 
 function obsluz_ruch(string $akcja, bool $post): void
 {
@@ -270,6 +316,23 @@ function obsluz_ruch(string $akcja, bool $post): void
                     $wynik['pojazdy'][] = ['nazwa' => $p['nazwa'], 'typ' => $p['typ'] ?? '', 'predkosc' => $p['predkosc'] ?? 0, 'wlasciciel' => $p['wlasciciel'],
                         'kierowca' => $p['kierowca_imie'] ?? '', 'gdzie' => $p['gdzie']['nazwa'] ?? 'nieznane', 'km' => $p['gdzie'] && $p['gdzie']['planeta'] === $gdzie['planeta'] ? round(ruch_odleglosc($gdzie, $p['gdzie']), 1) : null];
                 }
+                // Na pokładzie: stan statku (start, wznoszenie, orbita, skok).
+                if (str_starts_with($gdzie['klucz'] ?? '', 's:')) {
+                    $st = ruch_statek($gdzie['klucz']);
+                    $sc = wczytaj('sceny', [])[$u['id']] ?? [];
+                    $wynik['poklad'] = [
+                        'nazwa' => $st['nazwa'] ?? '?', 'w_locie' => !empty($st['w_locie']), 'cel' => $st['cel'] ?? '',
+                        'gotowy' => !empty($st['przygotowanie']) && time() >= $st['przygotowanie']['gotowy'], 'paliwo' => (int) ($st['paliwo'] ?? 0),
+                        'scena' => $sc['scena'] ?? '', 'od_zmiany_ms' => teraz_ms() - (int) ($sc['zmieniono'] ?? 0), 'wznoszenie_ms' => CZAS_WZNOSZENIA_MS,
+                    ];
+                }
+                // W locie nie ma dokąd pójść ani czym pojechać.
+                if (!empty($wynik['poklad']['w_locie'])) {
+                    $wynik['miejsca'] = [];
+                    $wynik['pojazdy'] = [];
+                }
+                // Pojazdy z innych planet nie są tu przydatne.
+                $wynik['pojazdy'] = array_values(array_filter($wynik['pojazdy'], fn($p) => $p['km'] !== null));
                 // Akcje w miejscu: bankomat, sklep.
                 if (($gdzie['typ'] ?? '') === 'sklep') $wynik['sklep'] = $gdzie['oferta'] ?? [];
                 $wynik['bankomat'] = ($gdzie['typ'] ?? '') === 'bankomat';
@@ -281,6 +344,7 @@ function obsluz_ruch(string $akcja, bool $post): void
             $karta = karta($u['id']);
             $lok = ruch_lokacje();
             $gdzie = ruch_gdzie($karta, $lok);
+            if (ruch_w_locie($karta['pozycja']['lokacja'] ?? '')) blad('Statek jest w locie.');
             $cel = $lok[(string) ($_GET['cel'] ?? '')] ?? null;
             if (!$gdzie || !$cel || $cel['planeta'] !== $gdzie['planeta']) blad('Nie można wyznaczyć trasy.', 404);
             odpowiedz(['opcje' => ruch_opcje($u['id'], $karta, $gdzie, $cel, ruch_planeta($gdzie['planeta']), $lok)]);
@@ -292,6 +356,7 @@ function obsluz_ruch(string $akcja, bool $post): void
             $w = wejscie();
             $karta = karta($u['id']);
             if (!empty($karta['podroz'])) blad('Jesteś w drodze.');
+            if (ruch_w_locie($karta['pozycja']['lokacja'] ?? '')) blad('Statek jest w locie.');
             $lok = ruch_lokacje();
             $gdzie = ruch_gdzie($karta, $lok);
             $cel = $lok[(string) ($w['cel'] ?? '')] ?? null;
@@ -441,6 +506,7 @@ function obsluz_ruch(string $akcja, bool $post): void
                 zmien('karty', function (&$k) use ($u, $s) {
                     $k[$u['id']]['pozycja']['lokacja'] = 's:' . $s['klucz'];
                     $k[$u['id']]['pozycja']['miejsce'] = 'Pokład: ' . $s['nazwa'];
+                    $k[$u['id']]['pozycja']['zmieniono'] = teraz_ms();
                 });
                 odpowiedz(['ok' => true]);
             }
@@ -453,16 +519,140 @@ function obsluz_ruch(string $akcja, bool $post): void
             $lok = ruch_lokacje();
             $p = $karta['pozycja']['lokacja'] ?? '';
             if (!str_starts_with($p, 's:')) blad('Nie jesteś na pokładzie.');
+            if (ruch_w_locie($p)) blad('Statek jest w locie.');
             [, $fid, $sid] = explode(':', $p);
             foreach (ruch_statki($u['id'], ruch_gdzie($karta, $lok)['planeta'] ?? '', $lok) as $s) {
                 if ($s['klucz'] === "$fid:$sid") {
                     zmien('karty', function (&$k) use ($u, $s) {
                         $k[$u['id']]['pozycja']['lokacja'] = $s['hangar']['klucz'];
                         $k[$u['id']]['pozycja']['miejsce'] = $s['hangar']['nazwa'];
+                        $k[$u['id']]['pozycja']['zmieniono'] = teraz_ms();
                     });
                     odpowiedz(['ok' => true]);
                 }
             }
             blad('Statek nie stoi w hangarze.');
+
+        case 'start':
+            // Start z hangaru: wszyscy na pokładzie widzą wznoszenie (chmury → kosmos → orbita).
+            if (!$post) blad('Zła metoda.', 405);
+            $u = wymagaj_logowania();
+            $klucz = karta($u['id'])['pozycja']['lokacja'] ?? '';
+            $statek = ruch_statek($klucz);
+            if (!$statek) blad('Nie jesteś na pokładzie statku.');
+            if (!empty($statek['w_locie'])) blad('Statek już jest w powietrzu.');
+            if (empty($statek['przygotowanie']) || time() < $statek['przygotowanie']['gotowy']) blad('Statek nie przeszedł obsługi naziemnej.');
+            $planeta = ruch_planeta($statek['lokalizacja'] ?? '');
+            $hangar = ruch_lokacje()[$statek['hangar'] ?? '']['nazwa'] ?? 'hangar';
+            ruch_zmien_statek($klucz, function (&$s) {
+                $s['w_locie'] = true;
+                $s['paliwo'] = max(0, (int) ($s['paliwo'] ?? 100) - 5); // wznoszenie z atmosfery
+                unset($s['przygotowanie'], $s['cel']);
+            });
+            $scena = ['scena' => 'start', 'planeta' => $planeta['typ'] ?? 'skalista', 'odleglosc' => 'blisko',
+                'miejsce' => $planeta['nazwa'], 'opis' => 'Start: ' . $hangar, 'wnetrze' => '', 'zmieniono' => teraz_ms()];
+            $zaloga = ruch_na_pokladzie($klucz);
+            zmien('sceny', function (&$s) use ($zaloga, $scena) {
+                foreach ($zaloga as $uid) $s[$uid] = $scena;
+            });
+            odpowiedz(['ok' => true, 'na_pokladzie' => count($zaloga)]);
+
+        case 'skok':
+            // Współrzędne skoku. Na razie: współrzędne planet z katalogu (pole „wspolrzedne”).
+            // Pełne astronawigacyjne zasady dopiszemy razem z mapą.
+            if (!$post) blad('Zła metoda.', 405);
+            $u = wymagaj_logowania();
+            $klucz = karta($u['id'])['pozycja']['lokacja'] ?? '';
+            $statek = ruch_statek($klucz);
+            if (!$statek || empty($statek['w_locie'])) blad('Skok możliwy tylko w locie, poza atmosferą.');
+            $sc = (wczytaj('sceny', [])[$u['id']] ?? []);
+            if (($sc['scena'] ?? '') === 'start' && teraz_ms() - (int) $sc['zmieniono'] < CZAS_WZNOSZENIA_MS) blad('Statek wciąż jest w atmosferze. Poczekaj na wyjście na orbitę.');
+            if (in_array($sc['scena'] ?? '', ['wejscie', 'nadswietlna'], true)) blad('Statek jest już w nadprzestrzeni.');
+            $norm = fn($t) => preg_replace('/[^0-9A-Z.\-]/u', '', mb_strtoupper((string) $t));
+            $wsp = $norm(wejscie()['wspolrzedne'] ?? '');
+            if ($wsp === '') blad('Wprowadź współrzędne.');
+            $cel = null;
+            foreach (katalog()['planety'] as $p) {
+                if (($p['wspolrzedne'] ?? '') !== '' && $norm($p['wspolrzedne']) === $wsp) $cel = $p;
+            }
+            if (!$cel) blad('Komputer nawigacyjny nie rozpoznaje tych współrzędnych.');
+            if ($cel['id'] === ($statek['lokalizacja'] ?? '')) blad('Jesteś już przy tej planecie.');
+            ruch_zmien_statek($klucz, function (&$s) use ($cel) {
+                $s['cel'] = $cel['id'];
+            });
+            $scena = ['scena' => 'wejscie', 'planeta' => $cel['typ'] ?? 'skalista', 'odleglosc' => 'srednio',
+                'miejsce' => $cel['nazwa'], 'opis' => 'Kurs: ' . $cel['nazwa'], 'wnetrze' => '', 'zmieniono' => teraz_ms()];
+            $zaloga = ruch_na_pokladzie($klucz);
+            zmien('sceny', function (&$s) use ($zaloga, $scena) {
+                foreach ($zaloga as $uid) $s[$uid] = $scena;
+            });
+            odpowiedz(['ok' => true, 'cel' => $cel['nazwa']]);
+
+        // ----- panel MG -----
+
+        case 'mg_statki_w_locie':
+            wymagaj_mg();
+            $pl = array_column(katalog()['planety'], 'nazwa', 'id');
+            $postacie = bank_postacie();
+            $lista = [];
+            foreach (wczytaj('firmy', ['firmy' => []])['firmy'] as $f) {
+                foreach ($f['dane']['flota'] ?? [] as $s) {
+                    if (empty($s['w_locie'])) continue;
+                    $klucz = 's:' . $f['id'] . ':' . $s['id'];
+                    $lista[] = ['klucz' => $klucz, 'nazwa' => $s['nazwa'], 'firma' => $f['nazwa'], 'przy' => $pl[$s['lokalizacja'] ?? ''] ?? '?',
+                        'cel' => $pl[$s['cel'] ?? ''] ?? '', 'zaloga' => array_map(fn($uid) => $postacie[$uid] ?? '?', ruch_na_pokladzie($klucz))];
+                }
+            }
+            odpowiedz(['statki' => $lista]);
+
+        case 'mg_skok_koniec':
+            // Wyjście z nadprzestrzeni przy celu: statek „jest” przy nowej planecie (hangar: pierwszy
+            // hangar/port tej planety), załoga widzi wyjście z nadprzestrzeni z planetą.
+            if (!$post) blad('Zła metoda.', 405);
+            wymagaj_mg();
+            $klucz = (string) (wejscie()['statek'] ?? '');
+            $statek = ruch_statek($klucz);
+            if (!$statek || empty($statek['cel'])) blad('Ten statek nie jest w skoku.');
+            $cel = ruch_planeta($statek['cel']);
+            $hangar = '';
+            foreach (ruch_lokacje() as $k => $l) {
+                if ($l['planeta'] === $cel['id'] && in_array($l['typ'], ['hangar', 'port'], true) && $hangar === '') $hangar = $k;
+            }
+            ruch_zmien_statek($klucz, function (&$s) use ($cel, $hangar) {
+                $s['lokalizacja'] = $cel['id'];
+                if ($hangar !== '') $s['hangar'] = $hangar;
+                $s['paliwo'] = max(0, (int) ($s['paliwo'] ?? 100) - 20);
+                unset($s['cel']);
+            });
+            $zaloga = ruch_na_pokladzie($klucz);
+            $scena = ['scena' => 'wyjscie', 'planeta' => $cel['typ'] ?? 'skalista', 'odleglosc' => 'srednio',
+                'miejsce' => $cel['nazwa'], 'opis' => 'Wyjście z nadprzestrzeni', 'wnetrze' => '', 'zmieniono' => teraz_ms()];
+            zmien('sceny', function (&$s) use ($zaloga, $scena) {
+                foreach ($zaloga as $uid) $s[$uid] = $scena;
+            });
+            // Pozycja postaci na pokładzie przenosi się na nową planetę.
+            zmien('karty', function (&$k) use ($zaloga, $cel) {
+                foreach ($zaloga as $uid) $k[$uid]['pozycja']['planeta'] = $cel['id'];
+            });
+            odpowiedz(['ok' => true, 'hangar' => $hangar !== '']);
+
+        case 'ladowanie':
+            // Powrót do hangaru, z którego statek wystartował (gdy jest przy tej samej planecie).
+            if (!$post) blad('Zła metoda.', 405);
+            $u = wymagaj_logowania();
+            $klucz = karta($u['id'])['pozycja']['lokacja'] ?? '';
+            $statek = ruch_statek($klucz);
+            if (!$statek || empty($statek['w_locie'])) blad('Statek nie jest w locie.');
+            if (!empty($statek['cel'])) blad('Statek jest w drodze do innego systemu.');
+            $hangar = ruch_lokacje()[$statek['hangar'] ?? ''] ?? null;
+            if (!$hangar || $hangar['planeta'] !== ($statek['lokalizacja'] ?? '')) blad('Kontrola lotów nie przydzieliła miejsca w żadnym hangarze na tej planecie.');
+            ruch_zmien_statek($klucz, function (&$s) {
+                $s['w_locie'] = false;
+            });
+            $zaloga = ruch_na_pokladzie($klucz);
+            zmien('karty', function (&$k) use ($zaloga) {
+                foreach ($zaloga as $uid) $k[$uid]['pozycja']['zmieniono'] = teraz_ms();
+            });
+            odpowiedz(['ok' => true]);
     }
 }

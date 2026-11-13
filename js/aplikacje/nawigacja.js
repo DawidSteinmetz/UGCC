@@ -96,7 +96,7 @@ export default {
         d.podroz ? podroz() : null,
         akcjeWMiejscu(),
         d.statki.length ? statki() : null,
-        d.podroz ? null : dokad(),
+        d.podroz || d.poklad?.w_locie ? null : dokad(),
         d.pojazdy.length ? pojazdy() : null,
       ].filter(Boolean)); // natywne append zamieniłoby null na tekst „null”
       tykaj();
@@ -114,10 +114,7 @@ export default {
     // Bankomat, sklep, zejście z pokładu.
     function akcjeWMiejscu() {
       const el = [];
-      if (d.gdzie.typ === 'poklad') {
-        el.push(h('div.panel', h('h2', 'Na pokładzie'), h('p.slaby.maly-tekst', 'Statek gotowy. Kurs i start ustala kontrola lotów.'),
-          h('button.przycisk.drugi', { onclick: () => akcja('zejdz_z_pokladu', {}, 'Zszedłeś do hangaru.') }, 'Zejdź z pokładu')));
-      }
+      if (d.poklad) el.push(poklad(d.poklad));
       if (d.bankomat) {
         const kwota = h('input', { type: 'number', min: 1, step: 1, placeholder: 'kwota' });
         el.push(h('div.panel', h('h2', 'Bankomat'),
@@ -132,6 +129,34 @@ export default {
           h('button.przycisk.drugi.maly', { onclick: () => akcja('sklep_kup', { pozycja: i, platnosc: 'gotowka' }, `Kupiono: ${t.nazwa}.`) }, 'Gotówką')))))));
       }
       return el.length ? h('div', el) : null;
+    }
+
+    // Pokład: start, wznoszenie, orbita, współrzędne skoku, lądowanie.
+    function poklad(p) {
+      const panel = (...x) => h('div.panel', { style: 'border-color:var(--akcent)' }, h('h2', `Pokład: ${p.nazwa}`), ...x);
+      const paliwo = h('div.slaby.maly-tekst', `Paliwo: ${p.paliwo}%`);
+      if (!p.w_locie) {
+        return panel(paliwo,
+          h('div.rzad', { style: 'margin-top:10px' },
+            p.gotowy
+              ? h('button.przycisk', { onclick: () => { if (confirm('Start? Wszyscy na pokładzie lecą razem.')) akcja('start', {}, 'Start! Wznoszenie przez atmosferę.'); } }, 'Start')
+              : h('span.slaby', 'Statek nie przeszedł obsługi naziemnej.'),
+            h('button.przycisk.drugi', { onclick: () => akcja('zejdz_z_pokladu', {}, 'Zszedłeś do hangaru.') }, 'Zejdź z pokładu')));
+      }
+      if (['wejscie', 'nadswietlna'].includes(p.scena) || p.cel) {
+        return panel(paliwo, h('p', 'Lot w nadprzestrzeni. Wyjście z nadprzestrzeni ustala kontrola lotu.'));
+      }
+      const wznoszenie = p.scena === 'start' && p.od_zmiany_ms < p.wznoszenie_ms;
+      if (wznoszenie) {
+        const koniec = teraz() + (p.wznoszenie_ms - p.od_zmiany_ms) / 1000;
+        return panel(paliwo, h('p', 'Wznoszenie przez atmosferę. Na orbicie za ', h('b', { 'data-koniec': koniec, 'data-przeladuj': '1' }, odliczanie(koniec - teraz()))));
+      }
+      const wsp = h('input', { placeholder: 'np. R-4 · 112.07 / -33.90', spellcheck: false, autocomplete: 'off' });
+      return panel(paliwo,
+        h('p.slaby.maly-tekst', 'Statek na orbicie. Komputer nawigacyjny czeka na współrzędne skoku.'),
+        h('div.rzad', h('div.pole.rozpycha', { style: 'margin:0' }, h('label', 'Współrzędne skoku'), wsp),
+          h('button.przycisk', { style: 'align-self:flex-end', onclick: () => akcja('skok', { wspolrzedne: wsp.value }, (r) => `Obliczono skok. Kurs: ${r.cel}.`) }, 'Skok')),
+        h('div', { style: 'margin-top:12px' }, h('button.przycisk.drugi', { onclick: () => akcja('ladowanie', {}, 'Wylądowano w hangarze.') }, 'Ląduj w hangarze')));
     }
 
     // Statki firm postaci na tej planecie: przygotowanie do lotu.

@@ -553,6 +553,9 @@ function obsluz_firmy(string $akcja, bool $post): void
             unset($o);
             foreach ($planety as &$p) {
                 $p['urbanizacja'] = in_array($p['urbanizacja'] ?? '', ['brak', 'niska', 'wysoka'], true) ? $p['urbanizacja'] : 'brak';
+                // Typ planety (widok z powierzchni, chmury przy starcie) i współrzędne skoku.
+                $p['typ'] = in_array($p['typ'] ?? '', TYPY_PLANET, true) ? $p['typ'] : 'skalista';
+                $p['wspolrzedne'] = mb_substr(trim((string) ($p['wspolrzedne'] ?? '')), 0, 40);
                 if (isset($p['taksowka'])) $p['taksowka'] = max(1, (int) $p['taksowka']);
             }
             unset($p);

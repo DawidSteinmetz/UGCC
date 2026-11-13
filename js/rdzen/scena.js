@@ -5,6 +5,8 @@
 //   nadswietlna — tunel nadprzestrzeni
 //   wyjscie     — smugi się kurczą, błysk, z ciemności wyłania się planeta
 //   orbita      — planeta (typ i odległość od MG) na tle gwiazd
+//   powierzchnia — widok za oknem (biuro, hotel) albo z wrót hangaru: niebo i krajobraz planety
+//   start       — wznoszenie: ~5 min chmur w kolorze atmosfery, potem czarne niebo, gwiazdy i planeta
 //
 // Wszystko rysowane kodem na <canvas>, bez obrazków. Animacja zatrzymuje się, gdy scena
 // jest niewidoczna (otwarta aplikacja, wygaszony ekran), żeby nie drenować baterii.
@@ -22,6 +24,27 @@ export const TYPY_PLANET = {
 };
 
 export const ODLEGLOSCI = { blisko: 1.15, srednio: 0.5, daleko: 0.16 };
+
+// Niebo i krajobraz z powierzchni: [góra nieba, horyzont], warstwy terenu (od dalekiej do bliskiej), styl terenu.
+const POWIERZCHNIE = {
+  pustynna: { niebo: ['#5f9fd0', '#f3d3a0'], teren: ['#e2b06c', '#cf9452', '#b47638'], styl: 'wydmy', slonce: '#fff2c4' },
+  lodowa: { niebo: ['#86b7e3', '#eaf6ff'], teren: ['#d3e6f3', '#b5d0e4', '#f4f9fc'], styl: 'szczyty', slonce: '#ffffff' },
+  oceaniczna: { niebo: ['#3d86d0', '#c4e4ff'], teren: ['#4f8a4a', '#1f5fa8', '#174d8c'], styl: 'morze', slonce: '#fff6d8' },
+  lesna: { niebo: ['#5ea7d9', '#d6efe0'], teren: ['#5d8f63', '#3d7442', '#24522a'], styl: 'las', slonce: '#fff6d8' },
+  wulkaniczna: { niebo: ['#1d0907', '#a8401c'], teren: ['#3a2420', '#2a1714', '#140b0a'], styl: 'wulkany', slonce: '#ff9a5a' },
+  gazowa: { niebo: ['#d8925a', '#ffe0b0'], teren: ['#f0c48e', '#e3a96c', '#c98a4b'], styl: 'chmury', slonce: '#fff1d0' },
+  miasto: { niebo: ['#33415f', '#e0b27a'], teren: ['#4a5262', '#343a46', '#22262e'], styl: 'miasto', slonce: '#ffd59a' },
+  bagienna: { niebo: ['#6f7f62', '#cbd4b2'], teren: ['#55663f', '#3b4f2f', '#25331e'], styl: 'bagno', slonce: '#f4f0cf' },
+  skalista: { niebo: ['#7fa6c4', '#e3e2d6'], teren: ['#a59a8d', '#8a8075', '#675f57'], styl: 'plaskowyze', slonce: '#fffbe8' },
+};
+const CZAS_STARTU = 300000; // 5 min chmur, potem przejście w kosmos
+
+const mieszaj = (a, b, f) => {
+  const x = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [p, q] = [x(a), x(b)];
+  return `rgb(${p.map((v, i) => Math.round(v + (q[i] - v) * f)).join(',')})`;
+};
+const gladko = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 const CZAS_WEJSCIA = 3600;  // ms
 const CZAS_WYJSCIA = 3200;
@@ -119,6 +142,8 @@ export function utworzScene(canvas) {
   let gwiazdy = [];
   let tunel = [];
   let planeta = null; // { tekstura, swiatla, d, typ }
+  let krajobraz = null; // { klucz, plotno, swiatla: [{x, y}] }
+  let chmury = [];
   const spokojnie = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function rozmiar() {
@@ -129,6 +154,7 @@ export function utworzScene(canvas) {
     canvas.height = Math.max(1, h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     planeta = null;
+    krajobraz = null;
   }
 
   function noweGwiazdy() {
@@ -299,6 +325,255 @@ export function utworzScene(canvas) {
     ctx.fillRect(0, 0, w, h);
   }
 
+  // ---------- widok z powierzchni ----------
+
+  // Noc według zegara tabletu (21:00–6:00); `stan.pora` może to wymusić ('dzien' / 'noc').
+  const noc = () => { if (stan.pora) return stan.pora === 'noc'; const g = new Date().getHours(); return g >= 21 || g < 6; };
+
+  // Teren jako statyczny obraz (liczony raz na rozmiar / planetę / porę dnia).
+  function przygotujKrajobraz() {
+    const typ = POWIERZCHNIE[stan.planeta] ? stan.planeta : 'skalista';
+    const klucz = `${typ}|${w}x${h}|${noc()}|${stan.miejsce || ''}`;
+    if (krajobraz?.klucz === klucz) return;
+    const p = POWIERZCHNIE[typ];
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, w * dpr);
+    c.height = Math.max(1, h * dpr);
+    const g = c.getContext('2d');
+    g.scale(dpr, dpr);
+    const los = losowe(hash(typ + (stan.miejsce || '')));
+    const ciemno = noc() ? 0.72 : 0;
+    const swiatla = [];
+    const horyzont = h * 0.58;
+
+    p.teren.forEach((kolor, i) => {
+      const glebia = i / (p.teren.length - 1); // 0 daleko, 1 blisko
+      const baza = horyzont + glebia * h * 0.16;
+      const amp = h * (0.03 + glebia * 0.05);
+      const faza = [los() * 10, los() * 10, los() * 10];
+      const yAt = (x) => {
+        const u = x / w;
+        switch (p.styl) {
+          case 'wydmy': return baza - amp * (0.6 * Math.sin(u * 5 + faza[0]) + 0.4 * Math.sin(u * 11 + faza[1]));
+          case 'szczyty': case 'wulkany': {
+            const tr = (v) => 1 - Math.abs(((v % 2) + 2) % 2 - 1) * 2;
+            return baza - amp * 1.6 * (0.6 * tr(u * 3 + faza[0]) + 0.3 * tr(u * 7 + faza[1]) + 0.1 * tr(u * 19 + faza[2]));
+          }
+          case 'plaskowyze': return baza - amp * 1.4 * (Math.sin(u * 4 + faza[0]) > 0.2 ? 1 : 0.15) - amp * 0.1 * Math.sin(u * 30);
+          case 'morze': return i === 0 ? baza - amp * Math.max(0, Math.sin(u * 6 + faza[0])) * 1.2 : baza + (i - 1) * h * 0.06;
+          case 'chmury': return baza - amp * 0.5 * Math.sin(u * 9 + faza[0] + i);
+          case 'bagno': return baza - amp * 0.25 * Math.sin(u * 6 + faza[0]);
+          default: return baza - amp * (0.5 * Math.sin(u * 4 + faza[0]) + 0.3 * Math.sin(u * 9 + faza[1]) + 0.2 * Math.sin(u * 23 + faza[2]));
+        }
+      };
+      g.fillStyle = noc() ? mieszaj(kolor, '#05070d', ciemno) : kolor;
+      g.beginPath();
+      g.moveTo(0, h);
+      for (let x = 0; x <= w; x += 4) g.lineTo(x, yAt(x));
+      g.lineTo(w, h);
+      g.closePath();
+      g.fill();
+
+      // Szczegóły terenu.
+      if (p.styl === 'las' && i > 0) {
+        for (let x = 0; x < w; x += 6 + los() * 10) {
+          const y = yAt(x), wys = (8 + los() * 22) * (0.6 + glebia);
+          g.beginPath(); g.moveTo(x - wys * 0.25, y + 2); g.lineTo(x, y - wys); g.lineTo(x + wys * 0.25, y + 2); g.fill();
+        }
+      }
+      if (p.styl === 'bagno' && i === 2) {
+        g.strokeStyle = g.fillStyle; g.lineWidth = 2;
+        for (let k = 0; k < 9; k++) {
+          const x = los() * w, y = yAt(x), wys = 30 + los() * 60;
+          g.beginPath(); g.moveTo(x, y); g.lineTo(x + (los() - 0.5) * 8, y - wys); g.lineTo(x + 14 * (los() - 0.5), y - wys * 1.15); g.stroke();
+        }
+      }
+      if (p.styl === 'wulkany' && i < 2) {
+        g.save(); g.globalCompositeOperation = 'lighter';
+        for (let k = 0; k < 14; k++) {
+          const x = los() * w, y = yAt(x);
+          g.strokeStyle = `rgba(255, ${80 + los() * 80 | 0}, 30, ${0.35 + los() * 0.4})`; g.lineWidth = 1 + los() * 2;
+          g.beginPath(); g.moveTo(x, y); g.lineTo(x + (los() - 0.5) * 30, y + 20 + los() * 60); g.stroke();
+        }
+        g.restore();
+      }
+      if (p.styl === 'miasto') {
+        // Wieże: im bliżej, tym wyższe; światła okien zapamiętujemy do migotania.
+        for (let x = -10; x < w; x += 18 + los() * 40) {
+          const sz = 14 + los() * 30 * (1 + glebia), wys = (40 + los() * 160) * (0.5 + glebia * 0.8);
+          const y0 = yAt(x) - wys;
+          g.fillRect(x, y0, sz, wys + h);
+          if (los() < 0.3) g.fillRect(x + sz / 2 - 1, y0 - 18, 2, 18);
+          for (let wy = y0 + 6; wy < yAt(x) - 4; wy += 7) {
+            for (let wx = x + 3; wx < x + sz - 3; wx += 5) {
+              if (los() < (noc() ? 0.35 : 0.08)) swiatla.push([wx, wy]);
+            }
+          }
+        }
+      }
+      if (p.styl === 'chmury' && i === 0) {
+        // Miasto w chmurach: platforma na horyzoncie.
+        const x = w * (0.25 + los() * 0.4), y = yAt(x) - h * 0.05;
+        g.fillStyle = noc() ? '#1b1c22' : '#8a6f5a';
+        g.beginPath(); g.ellipse(x, y, w * 0.06, h * 0.012, 0, 0, Math.PI * 2); g.fill();
+        g.fillRect(x - w * 0.02, y - h * 0.05, w * 0.04, h * 0.05);
+        g.fillRect(x - 2, y, 4, h * 0.08);
+      }
+      if (p.styl === 'morze' && i === 1) {
+        g.strokeStyle = noc() ? 'rgba(160,190,255,0.08)' : 'rgba(255,255,255,0.18)'; g.lineWidth = 1;
+        for (let k = 0; k < 60; k++) {
+          const x = los() * w, y = yAt(x) + los() * h * 0.3;
+          g.beginPath(); g.moveTo(x, y); g.lineTo(x + 10 + los() * 30, y); g.stroke();
+        }
+      }
+    });
+    krajobraz = { klucz, plotno: c, swiatla };
+  }
+
+  function rysujNiebo(typ, ciemnosc = 0) {
+    const p = POWIERZCHNIE[typ] || POWIERZCHNIE.skalista;
+    const d = Math.max(ciemnosc, noc() ? 0.82 : 0);
+    const g = ctx.createLinearGradient(0, 0, 0, h * 0.62);
+    g.addColorStop(0, mieszaj(p.niebo[0], '#020309', d));
+    g.addColorStop(1, mieszaj(p.niebo[1], '#0a0d18', d * 0.9));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    return d;
+  }
+
+  function rysujChmury(dt, typ, predkosc, alfa, gora = 0, dol = 0.55) {
+    const kolor = (TYPY_PLANET[typ] || TYPY_PLANET.skalista).atmosfera;
+    if (chmury.length < 40) {
+      chmury = Array.from({ length: 40 }, () => ({ x: Math.random() * w, y: gora * h + Math.random() * (dol - gora) * h, r: 40 + Math.random() * 140, s: 0.4 + Math.random() }));
+    }
+    ctx.save();
+    for (const c of chmury) {
+      c.x += c.s * predkosc * dt;
+      if (c.x - c.r * 2 > w) { c.x = -c.r * 2; c.y = gora * h + Math.random() * (dol - gora) * h; }
+      const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.r);
+      g.addColorStop(0, kolor + Math.round(alfa * 120).toString(16).padStart(2, '0'));
+      g.addColorStop(1, kolor + '00');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, c.r * 2, c.r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function rysujPowierzchnie(t, dt) {
+    const typ = POWIERZCHNIE[stan.planeta] ? stan.planeta : 'skalista';
+    const p = POWIERZCHNIE[typ];
+    const d = rysujNiebo(typ);
+    if (d > 0.5) rysujGwiazdy(0.000004, dt, d - 0.3, 0.05);
+    else {
+      // słońce
+      const sx = w * 0.78, sy = h * 0.2;
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, h * 0.25);
+      g.addColorStop(0, p.slonce); g.addColorStop(0.08, p.slonce + 'cc'); g.addColorStop(1, p.slonce + '00');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    }
+    rysujChmury(dt, typ, 0.012, d > 0.5 ? 0.25 : 0.7, 0.05, 0.45);
+    przygotujKrajobraz();
+    ctx.drawImage(krajobraz.plotno, 0, 0, w, h);
+    // migoczące światła miasta
+    if (krajobraz.swiatla.length) {
+      ctx.fillStyle = noc() ? 'rgba(255, 214, 140, 0.9)' : 'rgba(255, 240, 200, 0.35)';
+      const krok = Math.floor(t / 900);
+      krajobraz.swiatla.forEach(([x, y], i) => { if ((i * 7 + krok) % 23) ctx.fillRect(x, y, 2, 3); });
+    }
+    if (p.styl === 'bagno' || p.styl === 'chmury') {
+      const g = ctx.createLinearGradient(0, h * 0.55, 0, h);
+      g.addColorStop(0, 'rgba(220, 230, 210, 0)'); g.addColorStop(1, `rgba(220, 230, 210, ${noc() ? 0.08 : 0.3})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    }
+    rysujRame(stan.wnetrze);
+  }
+
+  // Rama okna (biuro, hotel…) albo wrota hangaru. Na zewnątrz (bankomat, inne) — bez ramy.
+  function rysujRame(wnetrze) {
+    const okno = ['biuro', 'hotel', 'kantyna', 'sklep', 'garaz'].includes(wnetrze);
+    const hangar = ['hangar', 'port', 'poklad'].includes(wnetrze);
+    if (!okno && !hangar) return;
+    ctx.save();
+    ctx.fillStyle = '#0a0e12';
+    if (okno) {
+      const r = Math.max(14, Math.min(w, h) * 0.035);
+      ctx.fillRect(0, 0, w, r); ctx.fillRect(0, h - r * 1.6, w, r * 1.6); ctx.fillRect(0, 0, r, h); ctx.fillRect(w - r, 0, r, h);
+      ctx.fillRect(w / 3 - r / 4, 0, r / 2, h); ctx.fillRect((2 * w) / 3 - r / 4, 0, r / 2, h);
+      ctx.fillRect(0, h * 0.38, w, r / 2.5);
+      // odbicie w szybie
+      const g = ctx.createLinearGradient(0, 0, w, h);
+      g.addColorStop(0, 'rgba(255,255,255,0.06)'); g.addColorStop(0.4, 'rgba(255,255,255,0)'); g.addColorStop(0.6, 'rgba(255,255,255,0.04)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+    } else {
+      // Wrota hangaru: ciemne wnętrze u góry i po bokach, posadzka z pasami ostrzegawczymi.
+      const gora = h * 0.12, bok = w * 0.06, podloga = h * 0.86;
+      ctx.fillRect(0, 0, w, gora);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(bok, gora); ctx.lineTo(bok, podloga); ctx.lineTo(0, h); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(w, 0); ctx.lineTo(w - bok, gora); ctx.lineTo(w - bok, podloga); ctx.lineTo(w, h); ctx.fill();
+      ctx.fillStyle = '#14191e'; ctx.fillRect(0, podloga, w, h - podloga);
+      for (let x = bok; x < w - bok; x += 28) {
+        ctx.fillStyle = (x / 28) % 2 < 1 ? '#c9a227' : '#14191e';
+        ctx.fillRect(x, podloga, 14, 6);
+      }
+      for (let x = w * 0.15; x < w * 0.9; x += w * 0.12) {
+        ctx.fillStyle = '#2a3a44'; ctx.fillRect(x, gora - 6, 4, 6);
+        const g = ctx.createRadialGradient(x + 2, gora, 0, x + 2, gora, 40);
+        g.addColorStop(0, 'rgba(255,240,200,0.25)'); g.addColorStop(1, 'rgba(255,240,200,0)');
+        ctx.fillStyle = g; ctx.fillRect(x - 40, gora, 84, 50);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Wznoszenie: chmury pędzą w dół (lecimy w górę), niebo ciemnieje, potem gwiazdy i planeta pod nami.
+  function rysujStart(dt) {
+    const typ = POWIERZCHNIE[stan.planeta] ? stan.planeta : 'skalista';
+    const t = Date.now() - stan.zmienionoLokalnie;
+    const f = t / CZAS_STARTU;
+    rysujNiebo(typ, 0.25 + 0.75 * gladko(0.55, 1.25, f));
+    const gwiazdy = gladko(0.9, 1.4, f);
+    if (gwiazdy > 0) rysujGwiazdy(0.00001, dt, gwiazdy, 0.05);
+    const alfaChmur = 1 - gladko(0.85, 1.2, f);
+    if (alfaChmur > 0) {
+      // Chmury w kolorze atmosfery: jaśniejsze szczyty, ciemniejszy spód, prześwity nieba między nimi.
+      const atm = (TYPY_PLANET[typ] || TYPY_PLANET.skalista).atmosfera;
+      const jasna = mieszaj(atm, '#ffffff', 0.45), ciemna = mieszaj(atm, '#202838', 0.35);
+      if (!chmury.length || chmury[0].pion === undefined) {
+        chmury = Array.from({ length: 34 }, () => ({ x: Math.random() * w, y: Math.random() * h * 1.4 - h * 0.2, r: 70 + Math.random() * 190, s: 0.5 + Math.random(), pion: true }));
+      }
+      const szybkosc = 0.32 * (1 - gladko(0.7, 1.2, f) * 0.8);
+      ctx.save();
+      ctx.globalAlpha = alfaChmur;
+      for (const c of chmury) {
+        c.y += c.s * szybkosc * dt;
+        if (c.y - c.r > h) { c.y = -c.r * 1.2; c.x = Math.random() * w; }
+        // cień spodu
+        let g = ctx.createRadialGradient(c.x, c.y + c.r * 0.25, 0, c.x, c.y + c.r * 0.25, c.r * 1.1);
+        g.addColorStop(0, ciemna.replace('rgb', 'rgba').replace(')', ',0.55)'));
+        g.addColorStop(1, ciemna.replace('rgb', 'rgba').replace(')', ',0)'));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(c.x, c.y + c.r * 0.25, c.r * 1.7, c.r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+        // jasna bryła
+        g = ctx.createRadialGradient(c.x - c.r * 0.2, c.y - c.r * 0.15, 0, c.x, c.y, c.r);
+        g.addColorStop(0, jasna.replace('rgb', 'rgba').replace(')', ',0.95)'));
+        g.addColorStop(0.55, jasna.replace('rgb', 'rgba').replace(')', ',0.7)'));
+        g.addColorStop(1, jasna.replace('rgb', 'rgba').replace(')', ',0)'));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(c.x, c.y, c.r * 1.6, c.r * 0.9, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+    const pojawienie = gladko(1.25, 1.8, f);
+    if (pojawienie > 0) {
+      const s = stan.odleglosc;
+      stan.odleglosc = 'blisko';
+      rysujPlanete(t, pojawienie);
+      stan.odleglosc = s;
+    }
+  }
+
   // ---------- pętla ----------
 
   let poprzednio = performance.now();
@@ -343,6 +618,12 @@ export function utworzScene(canvas) {
         rysujGwiazdy(0.000012 * ruch, dt, 0.9, 0.05);
         rysujPlanete(t, 1);
         break;
+      case 'powierzchnia':
+        rysujPowierzchnie(t, dt * ruch);
+        break;
+      case 'start':
+        rysujStart(dt * ruch);
+        break;
       default:
         tlo();
         rysujGwiazdy(0.00003 * ruch, dt, 1, 0.05);
@@ -357,11 +638,16 @@ export function utworzScene(canvas) {
   return {
     // Nowy stan z serwera. Animacje przejść grają tylko, jeśli zmiana jest świeża;
     // tablet włączony później od razu pokazuje stan końcowy.
+    // `przesuniecie` = zegar serwera − zegar tabletu (ms), żeby liczyć czas od zmiany jak serwer.
     ustaw(nowy) {
-      const zmiana = nowy.scena !== stan.scena || nowy.planeta !== stan.planeta || nowy.odleglosc !== stan.odleglosc || nowy.zmieniono !== stan.zmieniono;
+      const zmiana = nowy.scena !== stan.scena || nowy.planeta !== stan.planeta || nowy.odleglosc !== stan.odleglosc
+        || nowy.zmieniono !== stan.zmieniono || nowy.wnetrze !== stan.wnetrze || nowy.miejsce !== stan.miejsce;
       if (!zmiana) return;
-      const swieza = Date.now() - (nowy.zmieniono || 0) < 15000;
-      stan = { ...nowy };
+      const zmienionoLokalnie = (nowy.zmieniono || 0) - (nowy.przesuniecie || 0);
+      const swieza = Date.now() - zmienionoLokalnie < 15000;
+      stan = { ...nowy, zmienionoLokalnie };
+      chmury = [];
+      krajobraz = null;
       if (stan.scena === 'wejscie' && !swieza) stan.scena = 'nadswietlna';
       if (stan.scena === 'wyjscie' && !swieza) stan.scena = 'orbita';
       planeta = null;

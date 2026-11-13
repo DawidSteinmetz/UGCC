@@ -132,7 +132,8 @@ const scena = utworzScene(plotno);
 let stanSceny = pamiec.czytaj('scena', null);
 if (stanSceny) scena.ustaw({ ...stanSceny, zmieniono: 0 }); // z pamięci: bez animacji przejścia
 
-const NAZWY_SCEN = { kosmos: 'Przestrzeń', wejscie: 'Skok w nadprzestrzeń', nadswietlna: 'Nadprzestrzeń', wyjscie: 'Wyjście z nadprzestrzeni', orbita: 'Orbita' };
+const NAZWY_SCEN = { kosmos: 'Przestrzeń', wejscie: 'Skok w nadprzestrzeń', nadswietlna: 'Nadprzestrzeń', wyjscie: 'Wyjście z nadprzestrzeni', orbita: 'Orbita', powierzchnia: '', start: 'Wznoszenie' };
+let przesuniecieZegara = 0; // zegar serwera − zegar tabletu (ms)
 
 function tlo(widoczne) {
   html.classList.toggle('z-tlem', widoczne);
@@ -148,8 +149,11 @@ function opisMiejsca() {
   if (!stanSceny) return '';
   const typ = TYPY_PLANET[stanSceny.planeta]?.nazwa;
   // Po kilku sekundach skok staje się lotem w nadprzestrzeni, a wyjście — orbitą (tak jak tło).
-  const dawno = Date.now() - (stanSceny.zmieniono || 0) > 5000;
-  const sc = dawno ? ({ wejscie: 'nadswietlna', wyjscie: 'orbita' }[stanSceny.scena] || stanSceny.scena) : stanSceny.scena;
+  const odZmiany = Date.now() + przesuniecieZegara - (stanSceny.zmieniono || 0);
+  const dawno = odZmiany > 5000;
+  let sc = dawno ? ({ wejscie: 'nadswietlna', wyjscie: 'orbita' }[stanSceny.scena] || stanSceny.scena) : stanSceny.scena;
+  if (sc === 'start' && odZmiany > 300000) sc = 'orbita'; // po wznoszeniu statek jest na orbicie
+  if (sc === 'powierzchnia') return [stanSceny.miejsce, stanSceny.opis].filter(Boolean).join(' · ');
   const miejsce = stanSceny.miejsce || (sc === 'orbita' && typ ? `planeta ${typ}` : '');
   return [NAZWY_SCEN[sc], miejsce, stanSceny.opis].filter(Boolean).join(' · ');
 }
@@ -157,10 +161,11 @@ function opisMiejsca() {
 async function sprawdzScene() {
   if (!stan.uzytkownik) return;
   try {
-    const { scena: s } = await api('scena');
+    const { scena: s, teraz } = await api('scena');
+    przesuniecieZegara = teraz - Date.now();
     stanSceny = s;
     pamiec.zapisz('scena', s);
-    scena.ustaw(s);
+    scena.ustaw({ ...s, przesuniecie: przesuniecieZegara });
     document.querySelectorAll('[data-miejsce]').forEach((el) => { el.textContent = opisMiejsca(); });
   } catch { /* brak zasięgu — zostaje ostatni znany stan */ }
 }
@@ -302,6 +307,11 @@ async function rysujSzybkieAkcje() {
   const zostalo = (koniec) => { const el = h('b', { 'data-szybki': koniec }, ' ' + odliczanie(koniec - teraz())); return el; };
   if (d.podroz) {
     akcja(`W drodze → ${d.podroz.cel_nazwa}`, () => otworz('nawigacja'), zostalo(d.podroz.koniec));
+  } else if (d.poklad?.w_locie) {
+    const p = d.poklad;
+    if (p.scena === 'start' && p.od_zmiany_ms < p.wznoszenie_ms) akcja('Wznoszenie · orbita za', () => otworz('nawigacja'), zostalo(teraz() + (p.wznoszenie_ms - p.od_zmiany_ms) / 1000));
+    else if (['wejscie', 'nadswietlna'].includes(p.scena) || p.cel) akcja(`${p.nazwa}: lot w nadprzestrzeni`, () => otworz('nawigacja'));
+    else akcja(`${p.nazwa} na orbicie · wprowadź współrzędne skoku`, () => otworz('nawigacja'));
   } else if (d.gdzie) {
     for (const s of d.statki.slice(0, 2)) {
       const pr = s.przygotowanie;
