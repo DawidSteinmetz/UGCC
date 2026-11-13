@@ -7,7 +7,7 @@ import { api } from '../js/rdzen/api.js';
 const FRAKCJE = ['Rebelia', 'Imperium', 'Syndykat'];
 const glowna = document.getElementById('glowna');
 const menu = document.getElementById('menu');
-let biezaca = 'konta';
+let biezaca = 'stan';
 
 const msg = (t, rodzaj = 'blad') => h('div.msg.' + rodzaj, t);
 const pole = (etykieta, el) => h('label', etykieta, el);
@@ -80,7 +80,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { stan: 'Stan postaci', konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +90,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ konta, bank, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ stan: stanPostaci, konta, bank, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -264,6 +264,82 @@ async function katalog() {
         if (planety.value.trim() === '[]') planety.value = JSON.stringify(WZOR_PLANET, null, 2);
         if (oferty.value.trim() === '[]') oferty.value = JSON.stringify(WZOR_OFERT, null, 2);
       }))));
+}
+
+// ---------- stan faktyczny: scena w tle datapadów ----------
+
+const SCENY = {
+  kosmos: 'Przestrzeń (gwiazdy)',
+  wejscie: 'Wejście w nadświetlną → tunel',
+  nadswietlna: 'Lot w nadświetlnej (tunel)',
+  wyjscie: 'Wyjście z nadświetlnej → planeta',
+  orbita: 'Orbita planety',
+};
+const PLANETY = {
+  pustynna: 'pustynna', lodowa: 'lodowa', oceaniczna: 'oceaniczna', lesna: 'leśna', wulkaniczna: 'wulkaniczna',
+  gazowa: 'gazowy olbrzym', miasto: 'miasto-planeta', bagienna: 'bagienna', skalista: 'skalista',
+};
+const ODLEGLOSCI = { blisko: 'blisko (planeta wypełnia dół ekranu)', srednio: 'średnio', daleko: 'daleko (mała kula)' };
+
+async function stanPostaci() {
+  const { postacie } = await api('mg_sceny');
+  let planetyKatalogu = [];
+  try { planetyKatalogu = (await api('mg_katalog')).katalog.planety.map((p) => p.nazwa); } catch { /* katalog pusty */ }
+  const wybrane = new Set(JSON.parse(sessionStorage.getItem('mg.sceny.wybrane') || '[]'));
+  const zapamietaj = () => sessionStorage.setItem('mg.sceny.wybrane', JSON.stringify([...wybrane]));
+
+  const wybor = (opcje, dom) => h('select', Object.entries(opcje).map(([k, n]) => h('option', { value: k, selected: k === dom }, n)));
+  const f = {
+    scena: wybor(SCENY, 'nadswietlna'),
+    planeta: wybor(PLANETY, 'oceaniczna'),
+    odleglosc: wybor(ODLEGLOSCI, 'srednio'),
+    miejsce: h('input', { list: 'mg-planety', placeholder: 'np. Kashyyyk' }),
+    opis: h('input', { placeholder: 'np. Kurs: Kashyyyk · ETA 2 h' }),
+  };
+  const info = h('div');
+  const ustaw = async (nadpisz = {}) => {
+    try {
+      const dane = { ...Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value])), ...nadpisz, uids: [...wybrane] };
+      const { ile } = await api('mg_scena_ustaw', dane);
+      wyczysc(glowna);
+      await stanPostaci();
+      glowna.prepend(msg(`Ustawiono „${SCENY[dane.scena]}” dla ${ile} postaci. Tablety odświeżą się w ciągu kilku sekund.`, 'ok'));
+    } catch (e) {
+      wyczysc(info).append(msg(e.message));
+    }
+  };
+  const opis = (sc) => [SCENY[sc.scena], ['wyjscie', 'orbita'].includes(sc.scena) ? `${PLANETY[sc.planeta]}, ${sc.odleglosc}` : '', sc.miejsce, sc.opis].filter(Boolean).join(' · ');
+
+  glowna.append(
+    h('datalist#mg-planety', planetyKatalogu.map((n) => h('option', { value: n }))),
+    h('div.karta',
+      h('h2', 'Kto?'),
+      h('p.slaby', 'Zaznacz postacie, które są w tym samym miejscu (np. na pokładzie jednego statku). Zaznaczenie zostaje do zamknięcia karty.'),
+      h('table', h('tr', h('th', ''), h('th', 'Postać'), h('th', 'Frakcja'), h('th', 'Teraz widzi')),
+        postacie.map((p) => {
+          const cb = h('input', { type: 'checkbox', checked: wybrane.has(p.uid), style: 'width:auto' });
+          cb.addEventListener('change', () => { cb.checked ? wybrane.add(p.uid) : wybrane.delete(p.uid); zapamietaj(); });
+          return h('tr', h('td', cb), h('td', p.postac), h('td', p.frakcja), h('td.slaby', opis(p.scena)));
+        })),
+      h('div.rzad', { style: 'margin-top:8px' },
+        btn('Zaznacz wszystkich', () => { postacie.forEach((p) => wybrane.add(p.uid)); zapamietaj(); wyczysc(glowna); stanPostaci(); }),
+        btn('Odznacz', () => { wybrane.clear(); zapamietaj(); wyczysc(glowna); stanPostaci(); }))),
+    h('div.karta',
+      h('h2', 'Szybko'),
+      h('div.rzad',
+        btn('🌌 Przestrzeń', () => ustaw({ scena: 'kosmos' })),
+        btn('⚡ Skok w nadświetlną', () => ustaw({ scena: 'wejscie' }), '.glowny'),
+        btn('〰 Nadświetlna', () => ustaw({ scena: 'nadswietlna' })),
+        btn('🪐 Wyjście przy planecie (ustawienia niżej)', () => ustaw({ scena: 'wyjscie' }), '.glowny'),
+        btn('Orbita', () => ustaw({ scena: 'orbita' })))),
+    h('div.karta',
+      h('h2', 'Dokładnie'),
+      info,
+      h('div.siatka', pole('Scena', f.scena), pole('Typ planety', f.planeta), pole('Odległość od planety', f.odleglosc), pole('Miejsce', f.miejsce), pole('Opis na pulpicie', f.opis)),
+      h('p.slaby', 'Typ planety i odległość działają przy wyjściu z nadświetlnej i na orbicie. „Miejsce” wpływa też na rysunek powierzchni (ta sama nazwa = ta sama planeta). '
+        + 'Animacje skoku i wyjścia grają na tabletach, które są włączone w chwili zmiany; tablet włączony później od razu pokazuje stan końcowy.'),
+      btn('Ustaw dla zaznaczonych', () => ustaw(), '.glowny')),
+  );
 }
 
 // ---------- kanały szyfrowane (czarny rynek informacji) ----------

@@ -17,6 +17,7 @@ require __DIR__ . '/handel.php';
 require __DIR__ . '/komorka.php';
 require __DIR__ . '/agencja.php';
 require __DIR__ . '/kanaly.php';
+require __DIR__ . '/sceny.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict', 'secure' => !empty($_SERVER['HTTPS'])]);
 session_name('dp_sesja');
@@ -159,6 +160,7 @@ obsluz_firmy($akcja, $post);
 obsluz_komorka($akcja, $post);
 obsluz_agencja($akcja, $post);
 obsluz_kanaly($akcja, $post);
+obsluz_sceny($akcja, $post);
 
 switch ($akcja) {
 

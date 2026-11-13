@@ -39,6 +39,8 @@ api/komorka.php          profil komórki: misje
 api/agencja.php          profil agencji (ISB): wypłaty dla agentów, teczki i meldunki
 api/handel.php           ceny na planetach, kursy handlowe, automaty
 api/kanaly.php           czarny rynek informacji: wtyczki, kanały szyfrowane, słowniki
+api/sceny.php            stan faktyczny postaci (scena w tle datapada)
+js/rdzen/scena.js        animacje tła: gwiazdy, skok, tunel, wyjście, planety
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -197,6 +199,32 @@ wybiera MG (np. „Biuro Analiz Rynkowych Sektora”). Zakładki:
 - Kanał podmienia znane kody na znaczenia (wyróżnione kolorem, oryginał w podpowiedzi).
   Przycisk „Pokaż szyfr” wraca do oryginału. Bez pliku wiadomości zostają zaszyfrowane.
   Różne pliki mogą znać różne hasła, więc da się rozdawać częściowe klucze.
+
+## Stan faktyczny (animowane tło)
+
+Na ekranie startowym, blokadzie i pulpicie w tle żyje scena pokazująca, gdzie jest postać.
+Ustawia ją MG w panelu (zakładka **Stan postaci**, otwiera się jako pierwsza), dla jednej
+postaci albo dla wielu naraz (np. cała drużyna na jednym statku). Tablety pytają o scenę co
+6 sekund, więc zmiana w trakcie sesji pojawia się sama.
+
+| Scena | Co widać |
+|---|---|
+| Przestrzeń | gwiazdy powoli dryfują |
+| Skok w nadświetlną | gwiazdy przyspieszają i rozciągają się w smugi, błysk, potem tunel |
+| Nadświetlna | niebiesko-biały, wirujący tunel nadprzestrzeni |
+| Wyjście z nadświetlnej | błysk, smugi gasną i kurczą się w gwiazdy, wyłania się planeta |
+| Orbita | planeta z obracającą się powierzchnią, atmosferą i nocną stroną |
+
+- **Typ planety** (kolory i powierzchnia): pustynna, lodowa, oceaniczna, leśna, wulkaniczna
+  (lawa), gazowy olbrzym (pasy, burza), miasto-planeta (światła miast po nocnej stronie),
+  bagienna, skalista. **Odległość:** blisko (planeta wypełnia dół ekranu), średnio, daleko.
+- **Miejsce** (np. „Kashyyyk”) zmienia też rysunek powierzchni: ta sama nazwa daje zawsze tę
+  samą planetę. **Opis** (np. „Kurs: Nar Shaddaa · ETA 3 h”) wyświetla się na pulpicie pod datą.
+- Animacje skoku i wyjścia grają na tabletach włączonych w chwili zmiany. Tablet włączony
+  później od razu pokazuje stan końcowy (tunel albo orbitę).
+- Wszystko rysowane kodem na `<canvas>`, bez obrazków. W otwartych aplikacjach i przy
+  wygaszonym ekranie animacja stoi, żeby nie drenować baterii. Ustawienie systemowe
+  „ogranicz ruch” spowalnia animacje.
 
 ## Konta i bezpieczeństwo
 

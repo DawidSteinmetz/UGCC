@@ -431,3 +431,13 @@ input[type="range"] { width: 100%; accent-color: var(--akcent); }
 /* ---------- kanały szyfrowane ---------- */
 
 .odszyfrowane { color: var(--zph); border-bottom: 1px dotted var(--zph); }
+
+/* ---------- scena w tle (stan faktyczny) ---------- */
+
+#scena { position: absolute; inset: 0; width: 100%; height: 100%; display: none; z-index: 0; }
+html.z-tlem #scena { display: block; }
+#pasek, #pulpit, #dok { position: relative; z-index: 1; }
+html.z-tlem #pasek, html.z-tlem #dok { background: rgba(3, 6, 10, 0.45); }
+html.z-tlem .pulpit-glowa, html.z-tlem .blokada-zegar, html.z-tlem .blokada-data, html.z-tlem .start { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9); }
+html.z-tlem .ikona-aplikacji { background: rgba(8, 18, 22, 0.62); backdrop-filter: blur(3px); }
+.pulpit-miejsce { margin-top: 6px; font-size: 13px; letter-spacing: 0.12em; color: var(--akcent-2); min-height: 1em; }

@@ -3,6 +3,7 @@
 import { h, wyczysc, ikona, godzina, dataGST, czekaj, pamiec } from './rdzen/narzedzia.js';
 import { api } from './rdzen/api.js';
 import { URZADZENIE } from './rdzen/urzadzenie.js';
+import { utworzScene, TYPY_PLANET } from './rdzen/scena.js';
 
 import holonet from './aplikacje/holonet.js';
 import harmonogram from './aplikacje/harmonogram.js';
@@ -118,6 +119,53 @@ async function bateria() {
   } catch { /* brak czujnika */ }
 }
 
+// ================================================================
+// Scena w tle: „stan faktyczny” postaci (ustawia MG). Widoczna na ekranie startowym,
+// blokadzie i pulpicie; w aplikacjach zatrzymana, żeby oszczędzać baterię.
+// ================================================================
+
+const plotno = h('canvas#scena', { 'aria-hidden': 'true' });
+document.getElementById('ekran').prepend(plotno);
+const scena = utworzScene(plotno);
+let stanSceny = pamiec.czytaj('scena', null);
+if (stanSceny) scena.ustaw({ ...stanSceny, zmieniono: 0 }); // z pamięci: bez animacji przejścia
+
+const NAZWY_SCEN = { kosmos: 'Przestrzeń', wejscie: 'Skok w nadprzestrzeń', nadswietlna: 'Nadprzestrzeń', wyjscie: 'Wyjście z nadprzestrzeni', orbita: 'Orbita' };
+
+function tlo(widoczne) {
+  html.classList.toggle('z-tlem', widoczne);
+  if (widoczne && document.visibilityState === 'visible') scena.start();
+  else scena.stop();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') scena.stop();
+  else if (html.classList.contains('z-tlem')) scena.start();
+});
+
+function opisMiejsca() {
+  if (!stanSceny) return '';
+  const typ = TYPY_PLANET[stanSceny.planeta]?.nazwa;
+  // Po kilku sekundach skok staje się lotem w nadprzestrzeni, a wyjście — orbitą (tak jak tło).
+  const dawno = Date.now() - (stanSceny.zmieniono || 0) > 5000;
+  const sc = dawno ? ({ wejscie: 'nadswietlna', wyjscie: 'orbita' }[stanSceny.scena] || stanSceny.scena) : stanSceny.scena;
+  const miejsce = stanSceny.miejsce || (sc === 'orbita' && typ ? `planeta ${typ}` : '');
+  return [NAZWY_SCEN[sc], miejsce, stanSceny.opis].filter(Boolean).join(' · ');
+}
+
+async function sprawdzScene() {
+  if (!stan.uzytkownik) return;
+  try {
+    const { scena: s } = await api('scena');
+    stanSceny = s;
+    pamiec.zapisz('scena', s);
+    scena.ustaw(s);
+    document.querySelectorAll('[data-miejsce]').forEach((el) => { el.textContent = opisMiejsca(); });
+  } catch { /* brak zasięgu — zostaje ostatni znany stan */ }
+}
+setInterval(sprawdzScene, 6000);
+// Podpis na pulpicie dogania tło (skok → nadprzestrzeń) bez czekania na serwer.
+setInterval(() => document.querySelectorAll('[data-miejsce]').forEach((el) => { el.textContent = opisMiejsca(); }), 2000);
+
 function pokazPowloke(widoczna) {
   pasek.hidden = !widoczna;
   dok.hidden = !widoczna;
@@ -137,6 +185,7 @@ function widok(...zawartosc) {
 // 1. Ekran uśpienia: pierwsze dotknięcie włącza pełny ekran (przeglądarki wymagają gestu).
 function ekranStartowy() {
   pokazPowloke(false);
+  tlo(true);
   html.classList.add('aurebesh');
   wyczysc(pulpit);
   const s = h('div.start', { role: 'button', tabindex: 0 },
@@ -153,6 +202,7 @@ function ekranStartowy() {
 
 // 2. Rozruch: fabryczny system mówi w Aurebeshu, potem wchodzi moduł hakerów.
 async function rozruch() {
+  tlo(false);
   const r = h('div.rozruch');
   wyczysc(pulpit).append(r);
   const linia = async (tekst, klasa = '', pauza = 220) => {
@@ -192,6 +242,7 @@ async function rozruch() {
 
 // 3. Blokada: jedno konto do wszystkiego (identyfikator + klucz).
 function ekranBlokady(komunikat = '') {
+  tlo(true);
   zamknijAplikacje();
   pokazPowloke(false);
   stan.uzytkownik = null;
@@ -239,13 +290,16 @@ function ekranBlokady(komunikat = '') {
 function ekranPulpitu() {
   zamknijAplikacje();
   pokazPowloke(true);
+  tlo(true);
+  sprawdzScene();
   tytulPaska.textContent = '';
   const u = stan.uzytkownik;
   widok(
     h('div.pulpit-glowa',
       h('div',
         h('div.pulpit-zegar', { 'data-zegar': '' }, godzina()),
-        h('div.pulpit-data', { 'data-data': '' }, dataGST())),
+        h('div.pulpit-data', { 'data-data': '' }, dataGST()),
+        h('div.pulpit-miejsce', { 'data-miejsce': '' }, opisMiejsca())),
       h('div.pulpit-ktos',
         h('div', h('b', u.postac)),
         h('div', [u.frakcja, u.oddzial].filter(Boolean).join(' · ')),
@@ -272,6 +326,7 @@ function otworz(id) {
   const def = APLIKACJE.find((a) => a.id === id);
   if (!def || !stan.uzytkownik) return;
   zamknijAplikacje();
+  tlo(false);
   tytulPaska.textContent = def.nazwa;
   const w = widok();
   const kontekst = {
