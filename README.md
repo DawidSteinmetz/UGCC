@@ -34,7 +34,8 @@ js/rdzen/urzadzenie.js   producent, model i nazwa systemu (zmieniajcie tutaj)
 js/aplikacje/*.js        aplikacje: holonet, dekoder, harmonogram, frakcja, ustawienia
 api/index.php            jedno API dla wszystkiego (PHP 8.1+, dane w plikach)
 api/bank.php             logika banku (przelewy, odbiorcy, stałe dochody)
-api/firmy.php            firmy (profile) i wspólny katalog towarów i planet
+api/firmy.php            firmy (profile), przewozy i wspólny katalog towarów i planet
+api/komorka.php          profil komórki: misje, budynki, testy ukrytych statystyk
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -48,7 +49,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5 | hub, stream, `/recruitment/` |
-| Firma | panel firmy zależny od profilu; na razie przewozy: flota, magazyn, załoga, szlaki | nowe |
+| Firma | panel zależny od profilu: przewozy (flota, magazyn, załoga, szlaki) i komórka (to samo plus budynki i misje) | nowe |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
 | Harmonogram | kalendarz miesięczny, deklaracje obecności postaci (jedna na dzień) | `/calendar/` |
@@ -104,6 +105,29 @@ w `js/system.js` i do `PLIKI` w `sw.js`. Wzorem może być `ustawienia.js`, najp
   po nazwie. Zapis w edytorze nie rusza kursów graczy.
 - Na razie bez pieniędzy: firma nie ma własnego rachunku, pensje są tylko informacją, a kurs
   nie kosztuje paliwa. To naturalne następne kroki razem z giełdą i mapą.
+
+### Profil: komórka
+
+To ten sam panel co w przewozach (flota, magazyn, załoga, legalne kursy handlowe), plus
+dodatki (`js/aplikacje/firma/komorka.js`, `api/komorka.php`):
+
+- **Misje:** gracz wysyła statki i ludzi na akcję z kryptonimem, terminem, rejonem i celem.
+  **Jedna misja to jedna sesja z MG.** MG ją zatwierdza (siły dostają stan „na misji” i są
+  zablokowane dla kursów i innych misji), a po sesji **rozlicza ręcznie**:
+  - dla każdego statku: wrócił sprawny, uszkodzony albo zniszczony (zniszczony znika z floty);
+  - dla każdej osoby: cała, ranna albo poległa (poległa znika z załogi);
+  - zmiany w magazynach (łup na plus, straty na minus);
+  - gdzie statki kończą misję;
+  - raport, który gracze czytają w zakładce Misje.
+- **Budynki** (np. kopalnia): typ, planeta, pojemność, liczba pracowników (gracz zatrudnia
+  i zwalnia w granicach pojemności), koszt obsady i **kierownik**. Kierownika wyznacza się
+  w zakładce Załoga: przydział do budynku, potem „Na kierownika”.
+- **Ukryte statystyki** osób (1–10): pilotaż, dowodzenie, taktyka, zarządzanie, logistyka,
+  lojalność. Ustawia je MG w edytorze JSON, a do datapada nigdy nie trafiają. Gracz robi
+  **test** (raz na dobę na osobę) i dostaje zgrubną ocenę słowną: prawdziwa wartość ±2 opisana
+  jako „bardzo słabo … wybitnie”, więc dwa testy mogą się różnić. Ostatni wynik jest widoczny
+  przy osobie. MG widzi prawdziwe liczby w edytorze i przy rozliczaniu misji.
+- Ranna osoba nie poleci na misję. Wyleczenie: MG zmienia jej `stan` na `zdrowy` w edytorze.
 
 ## Konta i bezpieczeństwo
 

@@ -253,8 +253,9 @@ async function katalog() {
 
 // ---------- firmy ----------
 
-const PROFILE_FIRM = { transport: 'Transport' };
+const PROFILE_FIRM = { transport: 'Transport', komorka: 'Komórka' };
 const ROLE_FIRMY = { wlasciciel: 'właściciel', menedzer: 'menedżer', pracownik: 'pracownik' };
+const STATYSTYKI = { pilotaz: 'pilotaż', dowodzenie: 'dowodzenie', taktyka: 'taktyka', zarzadzanie: 'zarządzanie', logistyka: 'logistyka', lojalnosc: 'lojalność' };
 const STATUS_KURSU = { szkic: 'szkic', zgloszony: 'CZEKA NA DECYZJĘ', w_realizacji: 'w trasie', zakonczony: 'zakończony', odrzucony: 'odrzucony' };
 
 // Dane firmy do edytora: identyfikatory planet, towarów, statków i osób zamienione na nazwy.
@@ -263,12 +264,26 @@ function daneDoEdycji(d, kat) {
   const tw = Object.fromEntries(kat.towary.map((t) => [t.id, t.nazwa]));
   const st = Object.fromEntries(d.flota.map((s) => [s.id, s.nazwa]));
   const os = Object.fromEntries(d.zaloga.map((z) => [z.id, z.imie]));
-  return {
+  const bu = Object.fromEntries((d.budynki || []).map((b) => [b.id, b.nazwa]));
+  const wynik = {
     flota: d.flota.map((s) => ({ ...s, lokalizacja: pl[s.lokalizacja] || '', kapitan: os[s.kapitan] || '' })),
-    zaloga: d.zaloga.map((z) => ({ ...z, statek: st[z.statek] || '' })),
+    zaloga: d.zaloga.map((z) => ({ ...z, statek: st[z.statek] || '', ...(d.budynki ? { budynek: bu[z.budynek] || '' } : {}) })),
     magazyn: d.magazyn.map((m) => ({ planeta: pl[m.planeta] || m.planeta, towar: tw[m.towar] || m.towar, ilosc: m.ilosc })),
   };
+  if (d.budynki) wynik.budynki = d.budynki.map((b) => ({ ...b, planeta: pl[b.planeta] || '', menedzer: os[b.menedzer] || '' }));
+  return wynik;
 }
+
+const WZOR_KOMORKI = {
+  flota: [{ nazwa: 'Cień Zephyrii', klasa: 'korweta CR70', ladownosc: 60, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Mara Dex' }],
+  zaloga: [
+    { imie: 'Mara Dex', funkcja: 'pilot', pensja: 0, statystyki: { pilotaz: 8, dowodzenie: 6, taktyka: 5, lojalnosc: 9 } },
+    { imie: 'Orrin Vale', funkcja: 'inżynier', budynek: 'Kopalnia Kessa', statystyki: { zarzadzanie: 4, logistyka: 7, lojalnosc: 5 } },
+    { imie: 'Sela', funkcja: 'strzelec' },
+  ],
+  magazyn: [{ planeta: 'Zephyria', towar: 'Ogniwa paliwowe', ilosc: 10 }],
+  budynki: [{ nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', pojemnosc: 40, pracownicy: 12, pensja: 15, menedzer: 'Orrin Vale', opis: 'Wydobycie rudy w starych sztolniach.' }],
+};
 
 const WZOR_TRANSPORTU = {
   flota: [{ nazwa: 'Szary Wróbel', klasa: 'frachtowiec YT-1300', ladownosc: 100, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Dax Morrow' }],
@@ -314,10 +329,19 @@ async function firmy() {
       })));
   }
 
+  // Misje komórek: zatwierdzenie przed sesją, ręczne rozliczenie po sesji.
+  const misje = lista.flatMap((f) => (f.dane.misje || [])
+    .filter((m) => ['zgloszona', 'zatwierdzona'].includes(m.status)).map((m) => ({ f, m })));
+  if (misje.length) {
+    glowna.append(h('div.karta', h('h2', `Misje do obsłużenia (${misje.length})`), misje.map(({ f, m }) => kartaMisji(f, m, kat, odswiez))));
+  }
+
   // Edytor jednej firmy (nowej albo istniejącej).
   const edytor = (f) => {
     const nowa = !f;
     f = f || { id: '', nazwa: '', profil: 'transport', czlonkowie: [], dane: { flota: [], zaloga: [], magazyn: [] } };
+    // Nowa firma: zmiana profilu podmienia pusty szablon danych (komórka ma też budynki).
+    const pustyDlaProfilu = (p) => JSON.stringify(p === 'komorka' ? { flota: [], zaloga: [], magazyn: [], budynki: [] } : { flota: [], zaloga: [], magazyn: [] }, null, 2);
     const nazwa = h('input', { value: f.nazwa });
     const profil = h('select', { disabled: !nowa }, Object.entries(PROFILE_FIRM).map(([k, n]) => h('option', { value: k, selected: k === f.profil }, n)));
     const czlonkowie = h('div');
@@ -333,6 +357,7 @@ async function firmy() {
     };
     f.czlonkowie.forEach(dodajCzlonka);
     const dane = h('textarea', { style: 'min-height:320px' }, JSON.stringify(daneDoEdycji(f.dane, kat), null, 2));
+    if (nowa) profil.addEventListener('change', () => { dane.value = pustyDlaProfilu(profil.value); });
     const info = h('div');
     const zapisz = async () => {
       try {
@@ -353,11 +378,13 @@ async function firmy() {
       h('label', 'Członkowie (właściciel i menedżer mogą planować kursy i zmieniać przydziały; pracownik tylko podgląda)'),
       czlonkowie,
       btn('+ Członek', () => dodajCzlonka()), h('br'), h('br'),
-      h('label', 'Flota, załoga, magazyn (JSON). Planety, towary, statki i osoby wpisuj po nazwie. Stany statku: sprawny, uszkodzony, w naprawie, w trasie.', dane),
+      h('label', 'Flota, załoga, magazyn' + (f.profil === 'komorka' || nowa ? ' (w komórce także budynki)' : '') + ' — JSON. Planety, towary, statki, budynki i osoby wpisuj po nazwie. '
+        + 'Stany statku: sprawny, uszkodzony, w naprawie. Stan osoby: zdrowy, ranny. '
+        + 'Ukryte „statystyki” osób (1–10): ' + Object.entries(STATYSTYKI).map(([k, n]) => `${k} (${n})`).join(', ') + '. Gracze ich nie widzą — poznają je w przybliżeniu testem.', dane),
       h('br'),
       h('div.rzad',
         btn('Zapisz', zapisz, '.glowny'),
-        btn('Wstaw przykład', () => { dane.value = JSON.stringify(WZOR_TRANSPORTU, null, 2); }),
+        btn('Wstaw przykład', () => { dane.value = JSON.stringify(profil.value === 'komorka' ? WZOR_KOMORKI : WZOR_TRANSPORTU, null, 2); }),
         nowa ? null : btn('Usuń firmę', bezpiecznie(async () => {
           if (!confirm(`Usunąć firmę ${f.nazwa} razem z flotą i magazynami?`)) return;
           await api('mg_firma_usun', { id: f.id });
@@ -375,6 +402,68 @@ async function firmy() {
           h('td', btn('Edytuj', () => { const e = edytor(f); glowna.querySelector('#edytor-firmy').replaceChildren(e); e.scrollIntoView(); })))))
       : h('p.slaby', 'Brak firm. Najpierw uzupełnij katalog (towary, planety), potem załóż firmę.')),
   h('div#edytor-firmy', edytor(null)));
+}
+
+function kartaMisji(f, m, kat, odswiez) {
+  const pl = Object.fromEntries(kat.planety.map((p) => [p.id, p.nazwa]));
+  const statki = f.dane.flota.filter((s) => m.statki.includes(s.id));
+  const ludzie = f.dane.zaloga.filter((z) => m.zaloga.includes(z.id));
+  const statystyki = (z) => Object.entries(z.statystyki || {}).map(([k, v]) => `${STATYSTYKI[k] || k} ${v}`).join(', ');
+  const uwagi = h('input', { placeholder: 'uwagi dla graczy (np. powód odrzucenia)' });
+  const zmienStatus = (status, pytanie) => bezpiecznie(async () => {
+    if (pytanie && !confirm(pytanie)) return;
+    await api('mg_misja_status', { firma: f.id, misja: m.id, status, uwagi: uwagi.value });
+    await odswiez('Zmieniono status misji.');
+  });
+
+  const naglowek = h('div',
+    h('div', h('b', `${f.nazwa}: ${m.nazwa}`), h('span.slaby', `  · ${m.status === 'zgloszona' ? 'CZEKA NA ZATWIERDZENIE' : 'ZATWIERDZONA — do rozliczenia po sesji'} · termin ${m.termin} · ${pl[m.planeta] || 'bez rejonu'} · zgłosił(a) ${m.autor || '?'}`)),
+    h('div', { style: 'white-space:pre-wrap;margin:6px 0' }, m.cel));
+
+  if (m.status === 'zgloszona') {
+    return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' }, naglowek,
+      h('div.slaby', 'Statki: ' + (statki.map((s) => s.nazwa).join(', ') || '—')),
+      h('div.slaby', 'Ludzie: ' + (ludzie.map((z) => z.imie + (z.statystyki && Object.keys(z.statystyki).length ? ` [${statystyki(z)}]` : '')).join(', ') || '—')),
+      h('div.rzad', { style: 'margin-top:8px' }, h('div', { style: 'flex:1;min-width:220px' }, uwagi),
+        btn('Zatwierdź', zmienStatus('zatwierdzona'), '.glowny'), btn('Odrzuć', zmienStatus('odrzucona'), '.zly')));
+  }
+
+  // Rozliczenie: wynik dla każdego statku i człowieka, zmiany w magazynach, raport.
+  const wybor = (opcje, dom) => h('select', Object.entries(opcje).map(([k, n]) => h('option', { value: k, selected: k === dom }, n)));
+  const wynStatkow = Object.fromEntries(statki.map((s) => [s.id, wybor({ sprawny: 'wrócił sprawny', uszkodzony: 'uszkodzony', zniszczony: 'ZNISZCZONY' }, 'sprawny')]));
+  const wynLudzi = Object.fromEntries(ludzie.map((z) => [z.id, wybor({ zdrowy: 'cały', ranny: 'ranny', zginal: 'ZGINĄŁ' }, 'zdrowy')]));
+  const wracaNa = h('select', h('option', { value: '' }, 'tam, skąd wyleciały'), kat.planety.map((p) => h('option', { value: p.id }, p.nazwa)));
+  const lupy = h('div');
+  const dodajLup = () => {
+    const planeta = h('select', kat.planety.map((p) => h('option', { value: p.id }, p.nazwa)));
+    const towar = h('select', kat.towary.map((t) => h('option', { value: t.id }, t.nazwa)));
+    const ilosc = h('input', { type: 'number', step: 1, placeholder: '+ łup / − strata' });
+    const wiersz = h('div.rzad', { style: 'margin-bottom:6px' }, h('div', { style: 'flex:1' }, planeta), h('div', { style: 'flex:1' }, towar), h('div', { style: 'width:140px' }, ilosc), btn('×', () => wiersz.remove(), '.zly'));
+    wiersz._dane = () => ({ planeta: planeta.value, towar: towar.value, ilosc: Math.trunc(Number(ilosc.value) || 0) });
+    lupy.append(wiersz);
+  };
+  const raport = h('textarea', { style: 'font-family:inherit', placeholder: 'Raport dla graczy: co się wydarzyło na sesji' });
+  const rozlicz = bezpiecznie(async () => {
+    const straty = [...Object.values(wynStatkow), ...Object.values(wynLudzi)].filter((s) => ['zniszczony', 'zginal'].includes(s.value)).length;
+    if (!confirm(`Rozliczyć misję „${m.nazwa}”?${straty ? ` Trwałe straty: ${straty}.` : ''} Tego nie da się cofnąć.`)) return;
+    await api('mg_misja_rozlicz', {
+      firma: f.id, misja: m.id, raport: raport.value, wraca_na: wracaNa.value,
+      statki: Object.fromEntries(Object.entries(wynStatkow).map(([k, s]) => [k, s.value])),
+      zaloga: Object.fromEntries(Object.entries(wynLudzi).map(([k, s]) => [k, s.value])),
+      lup: [...lupy.children].map((w) => w._dane()).filter((l) => l.ilosc),
+    });
+    await odswiez('Misja rozliczona.');
+  });
+
+  return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' }, naglowek,
+    h('table', h('tr', h('th', 'Siły'), h('th', 'Ukryte statystyki'), h('th', 'Wynik')),
+      statki.map((s) => h('tr', h('td', s.nazwa, h('span.slaby', ` (${s.klasa || 'statek'})`)), h('td.slaby', '—'), h('td', wynStatkow[s.id]))),
+      ludzie.map((z) => h('tr', h('td', z.imie, h('span.slaby', ` (${z.funkcja || ''})`)), h('td.slaby', statystyki(z) || '—'), h('td', wynLudzi[z.id])))),
+    h('br'),
+    h('div.siatka', pole('Statki kończą na', wracaNa)),
+    h('label', 'Łup i straty w magazynach'), lupy, btn('+ Pozycja', dodajLup), h('br'), h('br'),
+    pole('Raport', raport), h('br'),
+    h('div.rzad', btn('Rozlicz misję', rozlicz, '.glowny'), h('div', { style: 'flex:1;min-width:200px' }, uwagi), btn('Odwołaj misję', zmienStatus('odrzucona', 'Odwołać misję? Siły wrócą do gotowości.'), '.zly')));
 }
 
 // ---------- dokumenty dekodera ----------

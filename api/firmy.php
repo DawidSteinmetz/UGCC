@@ -9,9 +9,9 @@
 
 declare(strict_types=1);
 
-const PROFILE_FIRM = ['transport'];
+const PROFILE_FIRM = ['transport', 'komorka'];
 const ROLE_FIRMY = ['wlasciciel', 'menedzer', 'pracownik'];
-const STANY_STATKU = ['sprawny', 'uszkodzony', 'w naprawie', 'w trasie'];
+const STANY_STATKU = ['sprawny', 'uszkodzony', 'w naprawie', 'w trasie', 'na misji'];
 const STATUSY_SZLAKU = ['szkic', 'zgloszony', 'w_realizacji', 'zakonczony', 'odrzucony'];
 
 function katalog(): array
@@ -40,7 +40,27 @@ function firma_dane_puste(string $profil): array
 {
     return match ($profil) {
         'transport' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => []],
+        'komorka' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'misje' => [], 'budynki' => []],
     };
+}
+
+// Listy, które MG ustawia w edytorze JSON (reszta, np. kursy i misje, zmienia się tylko w grze).
+function firma_edytowalne(string $profil): array
+{
+    return match ($profil) {
+        'transport' => ['flota', 'zaloga', 'magazyn'],
+        'komorka' => ['flota', 'zaloga', 'magazyn', 'budynki'],
+    };
+}
+
+// Dane firmy dla datapada: bez ukrytych statystyk osób (widzi je tylko MG).
+function firma_dla_gracza(array $f): array
+{
+    foreach ($f['dane']['zaloga'] as &$z) {
+        $z['testowalny'] = !empty($z['statystyki']);
+        unset($z['statystyki']);
+    }
+    return $f;
 }
 
 function firma_rola(array $firma, string $uid): ?string
@@ -235,18 +255,34 @@ function transport_operacja(array &$firma, string $op, array $w, array $u, bool 
             blad('Nie ma takiego statku.', 404);
 
         case 'przydziel':
-            // Członek załogi do statku (albo do bazy, gdy statek pusty) i opcjonalnie jako kapitan.
+            // Osoba na statek albo (w profilach z budynkami) do budynku, albo do bazy (oba puste).
+            // Opcjonalnie jako kapitan statku / kierownik budynku.
             $statek = (string) ($w['statek'] ?? '');
+            $budynek = (string) ($w['budynek'] ?? '');
+            if ($statek !== '' && $budynek !== '') blad('Osoba może być albo na statku, albo w budynku.');
             if ($statek !== '' && !in_array($statek, array_column($dane['flota'], 'id'), true)) blad('Nie ma takiego statku.', 404);
+            if ($budynek !== '' && !in_array($budynek, array_column($dane['budynki'] ?? [], 'id'), true)) blad('Nie ma takiego budynku.', 404);
             $znaleziony = false;
             foreach ($dane['zaloga'] as &$z) {
                 if ($z['id'] === ($w['czlonek'] ?? '')) {
+                    if (($z['stan'] ?? '') === 'na misji') blad('Ta osoba jest na misji.');
                     $z['statek'] = $statek;
+                    $z['budynek'] = $budynek;
                     $znaleziony = true;
                 }
             }
             unset($z);
             if (!$znaleziony) blad('Nie ma takiej osoby w załodze.', 404);
+            if (isset($dane['budynki'])) {
+                foreach ($dane['budynki'] as &$b) {
+                    if (!empty($w['menedzer']) && $b['id'] === $budynek) {
+                        $b['menedzer'] = $w['czlonek'];
+                    } elseif (($b['menedzer'] ?? '') === $w['czlonek'] && $b['id'] !== $budynek) {
+                        $b['menedzer'] = '';
+                    }
+                }
+                unset($b);
+            }
             // Kapitan musi być na swoim statku.
             foreach ($dane['flota'] as &$s) {
                 if (!empty($w['kapitan']) && $s['id'] === $statek) {
@@ -318,7 +354,7 @@ function obsluz_firmy(string $akcja, bool $post): void
                 $rola = firma_rola($f, $u['id']);
                 if (!$rola && $u['rola'] !== 'mg') blad('Brak dostępu do danych tej firmy.', 403);
                 $f['czlonkowie'] = array_map(fn($c) => $c + ['postac' => $postacie[$c['uid']] ?? '?'], $f['czlonkowie']);
-                odpowiedz(['firma' => $f, 'rola' => $rola ?? 'wlasciciel', 'katalog' => katalog()]);
+                odpowiedz(['firma' => firma_dla_gracza($f), 'rola' => $rola ?? 'wlasciciel', 'katalog' => katalog()]);
             }
             blad('Nie ma takiej firmy.', 404);
 
@@ -336,6 +372,7 @@ function obsluz_firmy(string $akcja, bool $post): void
                     $moze = in_array($rola, ['wlasciciel', 'menedzer'], true);
                     return match ($f['profil']) {
                         'transport' => transport_operacja($f, $op, $w, $u, $moze),
+                        'komorka' => komorka_operacja($f, $op, $w, $u, $moze),
                     };
                 }
                 blad('Nie ma takiej firmy.', 404);
@@ -406,7 +443,7 @@ function obsluz_firmy(string $akcja, bool $post): void
             if (isset($w['dane'])) {
                 $kat = katalog();
                 $dane = [];
-                foreach (['flota', 'zaloga', 'magazyn'] as $k) {
+                foreach (firma_edytowalne($profil) as $k) {
                     if (!isset($w['dane'][$k]) || !is_array($w['dane'][$k])) blad("Brak listy: $k");
                     $dane[$k] = $k === 'magazyn' ? array_values($w['dane'][$k]) : nadaj_id(array_values($w['dane'][$k]));
                 }
@@ -422,6 +459,14 @@ function obsluz_firmy(string $akcja, bool $post): void
                     $z['imie'] = (string) ($z['imie'] ?? '') ?: 'Bez imienia';
                     $z['pensja'] = max(0, (int) ($z['pensja'] ?? 0));
                     $z['statek'] = (string) ($z['statek'] ?? '');
+                    $z['budynek'] = (string) ($z['budynek'] ?? '');
+                    $z['stan'] = in_array($z['stan'] ?? '', STANY_OSOBY, true) ? $z['stan'] : 'zdrowy';
+                    // Ukryte statystyki 1–10 (tylko znane klucze).
+                    $st = [];
+                    foreach ((array) ($z['statystyki'] ?? []) as $klucz => $v) {
+                        if (isset(STATYSTYKI[$klucz])) $st[$klucz] = max(1, min(10, (int) $v));
+                    }
+                    $z['statystyki'] = $st;
                 }
                 unset($z);
                 // Przydział załogi po nazwie statku, kapitan po imieniu.
@@ -431,6 +476,26 @@ function obsluz_firmy(string $akcja, bool $post): void
                 }
                 unset($z);
                 $osoby = array_map(fn($z) => ['id' => $z['id'], 'nazwa' => $z['imie']], $dane['zaloga']);
+                if (isset($dane['budynki'])) {
+                    $dane['budynki'] = nadaj_id($dane['budynki']);
+                    foreach ($dane['budynki'] as &$b) {
+                        $b['nazwa'] = (string) ($b['nazwa'] ?? '') ?: 'Budynek';
+                        $b['typ'] = (string) ($b['typ'] ?? '');
+                        $b['planeta'] = ($b['planeta'] ?? '') === '' ? '' : katalog_id($kat['planety'], (string) $b['planeta'], 'planeta');
+                        $b['pojemnosc'] = max(0, (int) ($b['pojemnosc'] ?? 0));
+                        $b['pracownicy'] = max(0, min($b['pojemnosc'], (int) ($b['pracownicy'] ?? 0)));
+                        $b['pensja'] = max(0, (int) ($b['pensja'] ?? 0));
+                        $b['menedzer'] = ($b['menedzer'] ?? '') === '' ? '' : katalog_id($osoby, (string) $b['menedzer'], 'osoba w załodze');
+                    }
+                    unset($b);
+                    foreach ($dane['zaloga'] as &$z) {
+                        if ($z['budynek'] !== '') $z['budynek'] = katalog_id($dane['budynki'], $z['budynek'], 'budynek');
+                        foreach ($dane['budynki'] as $b) {
+                            if ($b['menedzer'] === $z['id']) { $z['budynek'] = $b['id']; $z['statek'] = ''; }
+                        }
+                    }
+                    unset($z);
+                }
                 foreach ($dane['flota'] as &$st) {
                     if ($st['kapitan'] === '') continue;
                     $st['kapitan'] = katalog_id($osoby, $st['kapitan'], 'osoba w załodze');

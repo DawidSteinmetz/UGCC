@@ -6,6 +6,10 @@
 //   f.moze                           czy wolno zmieniać (właściciel / menedżer)
 //   f.operacja(op, dane)             zmiana danych firmy przez API
 //   f.wczytaj()                      świeże dane firmy
+//
+// Inne profile (np. komórka) używają tego samego panelu i dokładają własne zakładki:
+//   uruchom(obszar, f, { nazwyZakladek, zakladki: { id: (p) => element } })
+// gdzie `p` to wspólne narzędzia panelu (zobacz obiekt `panel` niżej).
 
 import { h, wyczysc } from '../../rdzen/narzedzia.js';
 
@@ -22,15 +26,16 @@ const STAN_STATKU = {
   'w trasie': 'status-niepewny',
   uszkodzony: 'status-nieobecny',
   'w naprawie': 'status-niepewny',
+  'na misji': 'status-niepewny',
 };
 
 export default {
   nazwa: 'Przewozy',
 
-  uruchom(obszar, f) {
+  uruchom(obszar, f, rozszerzenie = {}) {
     let zakladka = 'flota';
     let dane = f.firma.dane;
-    let edytor = null; // otwarty plan kursu
+    let podwidok = null; // otwarty edytor (kursu, misji...) zamiast zakładki
     let licznikSprawdzania = null;
 
     const planety = Object.fromEntries(f.katalog.planety.map((p) => [p.id, p]));
@@ -61,11 +66,27 @@ export default {
     const tresc = h('div');
     obszar.append(zakladki, komunikat, tresc);
 
+    // Wspólne narzędzia dla zakładek z innych profili.
+    const panel = {
+      f,
+      get dane() { return dane; },
+      planety, towary, nazwaPlanety, wykonaj, pokaz, h, wyczysc,
+      rysuj: () => rysuj(),
+      odswiez: () => odswiez(),
+      otworz: (fn) => { podwidok = fn; rysuj(); },
+      zamknij: () => { podwidok = null; rysuj(); },
+      przebuduj: () => { if (podwidok) wyczysc(tresc).append(podwidok()); },
+    };
+
+    const ZAKLADKI = { flota, magazyn, zaloga, szlaki };
+    const NAZWY = [['flota', 'Flota'], ['magazyn', 'Magazyn'], ['zaloga', 'Załoga'], ['szlaki', 'Szlaki'], ...(rozszerzenie.nazwyZakladek || [])];
+    for (const [id, fn] of Object.entries(rozszerzenie.zakladki || {})) ZAKLADKI[id] = () => fn(panel);
+
     function rysuj() {
-      wyczysc(zakladki).append(...[['flota', 'Flota'], ['magazyn', 'Magazyn'], ['zaloga', 'Załoga'], ['szlaki', 'Szlaki']].map(([k, n]) =>
-        h('button' + (k === zakladka ? '.aktywna' : ''), { onclick: () => { zakladka = k; edytor = null; wyczysc(komunikat); rysuj(); } }, n)));
-      f.ustawWstecz(edytor ? () => { edytor = null; rysuj(); return true; } : f.wrocDoListy);
-      wyczysc(tresc).append(edytor ? edytorKursu() : { flota, magazyn, zaloga, szlaki }[zakladka]());
+      wyczysc(zakladki).append(...NAZWY.map(([k, n]) =>
+        h('button' + (k === zakladka ? '.aktywna' : ''), { onclick: () => { zakladka = k; podwidok = null; wyczysc(komunikat); rysuj(); } }, n)));
+      f.ustawWstecz(podwidok ? () => { podwidok = null; rysuj(); return true; } : f.wrocDoListy);
+      wyczysc(tresc).append(podwidok ? podwidok() : ZAKLADKI[zakladka]());
     }
 
     // ---------- flota ----------
@@ -122,26 +143,62 @@ export default {
 
     // ---------- załoga ----------
 
+    // Załoga / personel. W profilach z budynkami osobę można przydzielić także do budynku
+    // (i zrobić kierownikiem). Osoby z ukrytymi cechami („testowalny”) można przetestować.
     function zaloga() {
-      if (!dane.zaloga.length) return h('div.panel', h('div.pusto', 'Firma nikogo nie zatrudnia.'));
+      if (!dane.zaloga.length) return h('div.panel', h('div.pusto', 'Brak personelu.'));
+      const budynki = dane.budynki || [];
+      const styl = 'min-height:36px;background:transparent;border:1px solid var(--linia);border-radius:4px;padding:0 6px';
+      const wartosc = (z) => (z.statek ? 's:' + z.statek : z.budynek ? 'b:' + z.budynek : '');
       const wybor = (z) => {
-        const s = h('select', { style: 'min-height:36px;background:transparent;border:1px solid var(--linia);border-radius:4px;padding:0 6px' },
+        const s = h('select', { style: styl, disabled: z.stan === 'na misji' },
           h('option', { value: '' }, 'Baza (bez przydziału)'),
-          dane.flota.map((st) => h('option', { value: st.id, selected: st.id === z.statek }, st.nazwa)));
-        s.addEventListener('change', () => wykonaj('przydziel', { czlonek: z.id, statek: s.value }, `${z.imie}: nowy przydział.`));
+          dane.flota.length ? h('optgroup', { label: 'Statki' }, dane.flota.map((st) => h('option', { value: 's:' + st.id, selected: wartosc(z) === 's:' + st.id }, st.nazwa))) : null,
+          budynki.length ? h('optgroup', { label: 'Budynki' }, budynki.map((b) => h('option', { value: 'b:' + b.id, selected: wartosc(z) === 'b:' + b.id }, b.nazwa))) : null);
+        s.addEventListener('change', () => {
+          const [typ, id] = s.value.split(':');
+          wykonaj('przydziel', { czlonek: z.id, statek: typ === 's' ? id : '', budynek: typ === 'b' ? id : '' }, `${z.imie}: nowy przydział.`);
+        });
         return s;
       };
-      const czyKapitan = (z) => dane.flota.some((s) => s.kapitan === z.id);
-      return h('div.panel', h('table.tabela',
-        h('thead', h('tr', h('th', 'Imię'), h('th', 'Funkcja'), h('th', 'Pensja'), h('th', 'Przydział'), h('th', ''))),
-        h('tbody', dane.zaloga.map((z) => h('tr',
-          h('td', z.imie, czyKapitan(z) ? h('span.poziom', '  KAPITAN') : null),
+      const kapitan = (z) => dane.flota.some((s) => s.kapitan === z.id);
+      const kierownik = (z) => budynki.some((b) => b.menedzer === z.id);
+      const opisPrzydzialu = (z) => dane.flota.find((s) => s.id === z.statek)?.nazwa || budynki.find((b) => b.id === z.budynek)?.nazwa || 'Baza';
+
+      const awans = (z) => {
+        if (!f.moze || z.stan === 'na misji') return null;
+        if (z.statek && !kapitan(z)) return h('button.przycisk.drugi.maly', { onclick: () => wykonaj('przydziel', { czlonek: z.id, statek: z.statek, kapitan: true }, `${z.imie} dowodzi statkiem.`) }, 'Na kapitana');
+        if (z.budynek && !kierownik(z)) return h('button.przycisk.drugi.maly', { onclick: () => wykonaj('przydziel', { czlonek: z.id, budynek: z.budynek, menedzer: true }, `${z.imie} kieruje budynkiem.`) }, 'Na kierownika');
+        return null;
+      };
+      const test = (z) => (f.moze && z.testowalny
+        ? h('button.przycisk.drugi.maly', {
+          onclick: async () => {
+            const w = await wykonaj('test', { czlonek: z.id });
+            if (w) pokaz(`Test przeprowadzony: ${z.imie}. Wyniki w karcie osoby.`, 'ok');
+          },
+        }, 'Test') : null);
+
+      const wiersze = [];
+      for (const z of dane.zaloga) {
+        const znaczek = kapitan(z) ? 'KAPITAN' : kierownik(z) ? 'KIEROWNIK' : '';
+        wiersze.push(h('tr',
+          h('td', z.imie, znaczek ? h('span.poziom', '  ' + znaczek) : null,
+            z.stan && z.stan !== 'zdrowy' ? h('div.maly-tekst.' + (z.stan === 'ranny' ? 'status-nieobecny' : 'status-niepewny'), z.stan) : null),
           h('td.slaby', z.funkcja || '—'),
           h('td.slaby', z.pensja ? `${z.pensja} kr` : '—'),
-          h('td', f.moze ? wybor(z) : (dane.flota.find((s) => s.id === z.statek)?.nazwa || 'Baza')),
-          h('td', f.moze && z.statek && !czyKapitan(z)
-            ? h('button.przycisk.drugi.maly', { onclick: () => wykonaj('przydziel', { czlonek: z.id, statek: z.statek, kapitan: true }, `${z.imie} dowodzi statkiem.`) }, 'Na kapitana')
-            : null))))));
+          h('td', f.moze ? wybor(z) : opisPrzydzialu(z)),
+          h('td', h('div.rzad', awans(z), test(z)))));
+        // Wynik ostatniego testu: zgrubne oceny cech.
+        if (z.ocena?.wyniki) {
+          wiersze.push(h('tr', h('td', { colspan: 5, style: 'padding-top:0' },
+            h('div.slaby.maly-tekst', `Ocena z ${new Date(z.ocena.data).toLocaleDateString('pl-PL')} (${z.ocena.tester}): `,
+              Object.entries(z.ocena.wyniki).map(([k, v], i) => [i ? ' · ' : '', `${k}: `, h('span', { style: 'color:var(--tekst)' }, v)])))));
+        }
+      }
+      return h('div.panel', h('table.tabela',
+        h('thead', h('tr', h('th', 'Imię'), h('th', 'Funkcja'), h('th', 'Pensja'), h('th', 'Przydział'), h('th', ''))),
+        h('tbody', wiersze)));
     }
 
     // ---------- szlaki ----------
@@ -150,7 +207,7 @@ export default {
       const lista = [...dane.szlaki].sort((a, b) => (b.zmieniono || '').localeCompare(a.zmieniono || ''));
       const statek = (id) => dane.flota.find((s) => s.id === id)?.nazwa || '?';
       return h('div',
-        f.moze ? h('div', { style: 'margin-bottom:14px' }, h('button.przycisk', { onclick: () => { edytor = nowyKurs(); rysuj(); } }, 'Zaplanuj kurs')) : null,
+        f.moze ? h('div', { style: 'margin-bottom:14px' }, h('button.przycisk', { onclick: () => { const k = nowyKurs(); panel.otworz(() => edytorKursu(k)); } }, 'Zaplanuj kurs')) : null,
         lista.length
           ? h('div.panel', h('ul.lista', lista.map((s) => {
             const [opis, klasa] = STATUS_KURSU[s.status] || [s.status, ''];
@@ -160,7 +217,7 @@ export default {
                 h('div.slaby.maly-tekst', `${statek(s.statek)} · ${s.przystanki.map((p) => nazwaPlanety(p.planeta)).join(' → ')}`),
                 s.uwagi ? h('div.maly-tekst', { style: 'color:var(--akcent-2)' }, 'Kontrola ruchu: ' + s.uwagi) : null),
               h('span.maly-tekst' + (klasa ? '.' + klasa : ''), opis),
-              h('button.przycisk.drugi.maly', { onclick: () => { edytor = JSON.parse(JSON.stringify(s)); rysuj(); } },
+              h('button.przycisk.drugi.maly', { onclick: () => { const k = JSON.parse(JSON.stringify(s)); panel.otworz(() => edytorKursu(k)); } },
                 f.moze && ['szkic', 'odrzucony'].includes(s.status) ? 'Edytuj' : 'Podgląd')));
           })))
           : h('div.panel', h('div.pusto', 'Brak zaplanowanych kursów.')));
@@ -175,8 +232,7 @@ export default {
     }
 
     // Edytor planu kursu: statek, przystanki, a na każdym rozładunek / załadunek.
-    function edytorKursu() {
-      const k = edytor;
+    function edytorKursu(k) {
       const edytowalny = f.moze && ['szkic', 'odrzucony'].includes(k.status);
       const problemy = h('div');
       const podsumowanie = h('div');
@@ -204,7 +260,7 @@ export default {
           }
         }, 350);
       };
-      const przebuduj = () => { wyczysc(tresc).append(edytorKursu()); };
+      const przebuduj = () => panel.przebuduj();
 
       // Ładunek po każdym przystanku (podgląd; ostateczne sprawdzenie robi serwer).
       function przeliczLadunek() {
@@ -249,7 +305,7 @@ export default {
 
       const zapisz = async (op) => {
         const wynik = await wykonaj(op, { szlak: k }, op === 'szlak_zglos' ? 'Plan lotu złożony w kontroli ruchu.' : 'Szkic zapisany.');
-        if (wynik && op === 'szlak_zglos') { edytor = null; rysuj(); }
+        if (wynik && op === 'szlak_zglos') { panel.zamknij(); }
         else if (wynik) { k.id = wynik.id; rysuj(); }
       };
 
@@ -271,7 +327,7 @@ export default {
         edytowalny ? h('div.rzad', { style: 'margin-top:14px' },
           h('button.przycisk', { onclick: () => zapisz('szlak_zglos') }, 'Złóż plan lotu'),
           h('button.przycisk.drugi', { onclick: () => zapisz('szlak_zapisz') }, 'Zapisz szkic'),
-          k.id ? h('button.przycisk.zly', { onclick: async () => { if (await wykonaj('szlak_usun', { id: k.id }, 'Plan usunięty.')) { edytor = null; rysuj(); } } }, 'Usuń') : null) : null,
+          k.id ? h('button.przycisk.zly', { onclick: async () => { if (await wykonaj('szlak_usun', { id: k.id }, 'Plan usunięty.')) panel.zamknij(); } }, 'Usuń') : null) : null,
       );
       sprawdz();
       return widok;

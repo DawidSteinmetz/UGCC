@@ -1,12 +1,12 @@
 // Pliki systemu w pamięci tabletu: datapad uruchamia się nawet przy słabym zasięgu.
 // Dane gry (api/) zawsze idą z sieci. Po zmianie plików systemu podbijcie WERSJA.
-const WERSJA = 'hololink-3';
+const WERSJA = 'hololink-4';
 const PLIKI = [
   './', 'index.html', 'manifest.webmanifest', 'css/system.css', 'assets/ikona.svg', 'assets/czcionki/aurebesh.otf',
   'js/system.js', 'js/rdzen/api.js', 'js/rdzen/narzedzia.js', 'js/rdzen/urzadzenie.js',
   'js/aplikacje/holonet.js', 'js/aplikacje/dekoder.js', 'js/aplikacje/harmonogram.js',
   'js/aplikacje/frakcja.js', 'js/aplikacje/ustawienia.js', 'js/aplikacje/bank.js',
-  'js/aplikacje/firma.js', 'js/aplikacje/firma/transport.js',
+  'js/aplikacje/firma.js', 'js/aplikacje/firma/transport.js', 'js/aplikacje/firma/komorka.js',
 ];
 
 self.addEventListener('install', (e) => {

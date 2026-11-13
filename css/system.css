@@ -422,3 +422,8 @@ input[type="range"] { width: 100%; accent-color: var(--akcent); }
 .bank-numer { letter-spacing: 0.12em; }
 .bank-plus { color: var(--ok); white-space: nowrap; }
 .bank-minus { color: var(--tekst-slaby); white-space: nowrap; }
+
+/* ---------- poprawki układu ---------- */
+
+.licznik span { white-space: nowrap; }
+.dwie-kolumny > .panel + .panel { margin-top: 0; }

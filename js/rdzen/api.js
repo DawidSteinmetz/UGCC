@@ -30,6 +30,7 @@ export async function api(akcja, dane, parametry = {}) {
   } catch { /* odpowiedź nie jest JSON-em */ }
   if (!odp.ok || !json) {
     const b = new BladSieci(json?.blad || 'Węzeł holonetu nie odpowiada. Spróbuj ponownie.', odp.status);
+    b.problemy = json?.problemy || [];
     if (odp.status === 401) window.dispatchEvent(new CustomEvent('datapad:sesja-wygasla'));
     throw b;
   }

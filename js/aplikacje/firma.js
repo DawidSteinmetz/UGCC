@@ -4,8 +4,9 @@
 import { h, wyczysc } from '../rdzen/narzedzia.js';
 import { api } from '../rdzen/api.js';
 import transport from './firma/transport.js';
+import komorka from './firma/komorka.js';
 
-const PROFILE = { transport };
+const PROFILE = { transport, komorka };
 
 const ROLE = { wlasciciel: 'Właściciel', menedzer: 'Menedżer', pracownik: 'Pracownik' };
 
