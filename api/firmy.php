@@ -39,6 +39,15 @@ function katalog(): array
         'lokacje' => $k['lokacje'] ?? [], 'ustawienia' => $k['ustawienia'] ?? ['tempo' => 1]];
 }
 
+// Katalog wysyłany do datapada: bez położenia na mapie i bez listy, kto widzi planetę.
+// Mapa dostaje te dane osobno (api/?a=mapa), tylko gdy postać jest upoważniona.
+function katalog_dla_gracza(): array
+{
+    $k = katalog();
+    $k['planety'] = array_map(fn($p) => array_diff_key($p, ['mapa' => 1, 'widoczna_dla' => 1]), $k['planety']);
+    return $k;
+}
+
 // Test ukrytych cech: wartość ±2, opisana słownie. Najwyżej raz na TEST_CO_ILE_DNI dni.
 function test_ocena(array $statystyki, ?array $poprzednia, string $tester): array
 {
@@ -448,7 +457,7 @@ function obsluz_firmy(string $akcja, bool $post): void
                 odpowiedz([
                     'firma' => firma_dla_gracza($f),
                     'rola' => $rola ?? 'wlasciciel',
-                    'katalog' => katalog(),
+                    'katalog' => katalog_dla_gracza(),
                     'finanse' => $finanse,
                     'kandydaci' => kandydaci_dla_firmy($f),
                     'ceny' => handel_ceny_dnia(katalog(), date('Y-m-d')),
@@ -559,6 +568,18 @@ function obsluz_firmy(string $akcja, bool $post): void
                 // Kontrola lotów (nazwa, np. „Imperialna Kontrola Lotów Tatooine”); pusta = planeta bez kontroli.
                 $p['kontrola'] = mb_substr(trim((string) ($p['kontrola'] ?? '')), 0, 80);
                 if (isset($p['taksowka'])) $p['taksowka'] = max(1, (int) $p['taksowka']);
+                // Planeta spoza bazy mapy (assets/mapa): położenie na mapie galaktyki i opcjonalnie
+                // lista loginów, które ją widzą (pusta = wszyscy). Zobacz mapa_dodatkowe() w ruch.php.
+                if (isset($p['mapa'])) {
+                    $m = (array) $p['mapa'];
+                    if (!is_numeric($m['x'] ?? null) || !is_numeric($m['y'] ?? null)) blad("Planeta {$p['nazwa']}: „mapa” potrzebuje liczb x i y.");
+                    $p['mapa'] = ['x' => round((float) $m['x'], 1), 'y' => round((float) $m['y'], 1)]
+                        + array_filter(['kwadrat' => mb_substr(trim((string) ($m['kwadrat'] ?? '')), 0, 12), 'region' => mb_substr(trim((string) ($m['region'] ?? '')), 0, 40)], fn($v) => $v !== '');
+                }
+                if (isset($p['widoczna_dla'])) {
+                    $p['widoczna_dla'] = array_values(array_filter(array_map(fn($x) => mb_substr(trim((string) $x), 0, 64), (array) $p['widoczna_dla']), fn($x) => $x !== ''));
+                    if (!$p['widoczna_dla']) unset($p['widoczna_dla']);
+                }
             }
             unset($p);
             // Lokacje: miejsca na planetach z współrzędnymi w km.

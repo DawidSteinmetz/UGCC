@@ -256,7 +256,10 @@ async function katalog() {
       + 'Pole „id” nadaje serwer — nie zmieniaj go, bo odwołują się do niego magazyny i kursy. Nowe pozycje dopisuj bez „id”. '
       + 'Towar: nazwa, kategoria, masa (t na jednostkę), jednostka, cena (bazowa, kr). '
       + 'Planeta: nazwa, sektor, typ (pustynna, lodowa, oceaniczna, lesna, wulkaniczna, gazowa, miasto, bagienna, skalista — widok z powierzchni i chmury przy starcie), wspolrzedne (do skoku), kontrola (nazwa kontroli lotów, np. „Imperialna Kontrola Lotów”; brak = planeta bez kontroli), specyfika — mnożniki ceny dla towarów albo kategorii, np. {"surowce": 0.6, "Zboże": 1.5} '
-      + '(0.6 = tanio, bo się tam produkuje; 1.5 = drogo, bo jest popyt). Kursy wahają się codziennie o ±8%, kupno/sprzedaż różnią się o 10%.'),
+      + '(0.6 = tanio, bo się tam produkuje; 1.5 = drogo, bo jest popyt). Kursy wahają się codziennie o ±8%, kupno/sprzedaż różnią się o 10%. '
+      + 'Mapa galaktyki: planety łączą się z mapą po nazwie. Planetę, której mapa nie zna, dodaje pole mapa: {"x": 8340, "y": -2990, "kwadrat": "Q-12"} '
+      + '(y rośnie na północ; region opcjonalny, domyślnie region najbliższej planety). Pole widoczna_dla: ["ISB-5023", ...] — loginy, które widzą tę planetę na mapie; '
+      + 'pozostali gracze w ogóle się o niej nie dowiedzą (MG widzi zawsze).'),
     info,
     h('label', 'Towary', towary), h('br'),
     h('label', 'Planety', planety), h('br'),

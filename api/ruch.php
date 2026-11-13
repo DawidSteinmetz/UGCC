@@ -118,6 +118,23 @@ function lacznosc_odpowiedz_npc(string $statek, array $watek): ?array
     return null;
 }
 
+// Planety z katalogu, których nie ma w bazie mapy (pole „mapa”: x, y, kwadrat, region).
+// Planeta z „widoczna_dla” (lista loginów) trafia tylko do tych kont i do MG. Reszta nawet
+// nie dowiaduje się, że istnieje.
+function mapa_dodatkowe(array $u): array
+{
+    $w = [];
+    foreach (katalog()['planety'] as $p) {
+        if (!isset($p['mapa']['x'], $p['mapa']['y'])) continue;
+        $lista = array_map('mb_strtolower', (array) ($p['widoczna_dla'] ?? []));
+        if ($lista && ($u['rola'] ?? '') !== 'mg' && !in_array(mb_strtolower($u['login']), $lista, true)) continue;
+        $w[] = ['nazwa' => $p['nazwa'], 'x' => (float) $p['mapa']['x'], 'y' => (float) $p['mapa']['y'],
+            'kwadrat' => $p['mapa']['kwadrat'] ?? '', 'region' => $p['mapa']['region'] ?? '', 'sektor' => $p['sektor'] ?? '',
+            'zastrzezona' => (bool) $lista];
+    }
+    return $w;
+}
+
 function ruch_tempo(): float
 {
     return max(0.05, min(60, (float) (wczytaj('katalog', [])['ustawienia']['tempo'] ?? 1)));
@@ -351,6 +368,7 @@ function obsluz_ruch(string $akcja, bool $post): void
                         'cel' => $nazwy[$s['cel'] ?? ''] ?? '', 'w_locie' => !empty($s['w_locie'])];
                 }
             }
+            $wynik['dodatkowe'] = mapa_dodatkowe($u);
             odpowiedz($wynik);
 
         case 'nawigacja':

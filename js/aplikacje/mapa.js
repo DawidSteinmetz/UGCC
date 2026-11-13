@@ -90,6 +90,12 @@ export default {
     // Widok: ekran x = X·skala + ox, ekran y = −Y·skala + oy (północ galaktyki u góry).
     let skala = 0.03, ox = 0, oy = 0, szer = 0, wys = 0, dpr = 1;
     let D = null;
+    // Planety tego widoku: baza mapy plus planety z katalogu MG, które ta postać może widzieć
+    // (także zastrzeżone). Dodatkowe żyją tylko w tej instancji, nie we wspólnej pamięci modułu.
+    let P = [];
+    let wgKlucza = new Map();
+    let dodatkowe = [];
+    let odciskDodatkowych = '';
     let szlakiWidoczne = true;
     let wybrane = null;     // { planeta } albo { szlak }
     let najechane = null;
@@ -218,7 +224,7 @@ export default {
       g.fillStyle = kolory.tekst;
       g.globalAlpha = skala > 0.1 ? 0.9 : 0.65;
       g.beginPath();
-      for (const p of D.planety) {
+      for (const p of P) {
         const [sx, sy] = naEkran(p.x, p.y);
         if (sx < -10 || sy < -10 || sx > szer + 10 || sy > wys + 10) continue;
         g.moveTo(sx + r, sy);
@@ -226,6 +232,17 @@ export default {
       }
       g.fill();
       g.globalAlpha = 1;
+      // Planety zastrzeżone: romb w kolorze ZPH, nazwa zawsze widoczna.
+      g.font = `11px ${kroj}`;
+      for (const p of dodatkowe) {
+        if (!p.zastrzezona) continue;
+        const [sx, sy] = naEkran(p.x, p.y);
+        g.fillStyle = kolory.zph;
+        g.beginPath();
+        g.moveTo(sx, sy - 5); g.lineTo(sx + 5, sy); g.lineTo(sx, sy + 5); g.lineTo(sx - 5, sy);
+        g.fill();
+        napis(g, p.nazwa, sx + 8, sy + 4);
+      }
       // Nazwy: tylko z bliska i bez nakładania się. Zajęte prostokąty trzymamy w kubełkach 100 px.
       if (skala < 0.12) return;
       g.font = `11px ${kroj}`;
@@ -250,7 +267,13 @@ export default {
           }
         }
       };
-      for (const p of D.planety) {
+      for (const p of dodatkowe) {
+        if (!p.zastrzezona) continue;
+        const [sx, sy] = naEkran(p.x, p.y);
+        zajmij([sx - 6, sy - 8, sx + 10 + g.measureText(p.nazwa).width, sy + 7]);
+      }
+      for (const p of P) {
+        if (p.zastrzezona) continue;
         const [sx, sy] = naEkran(p.x, p.y);
         if (sx < 0 || sy < 0 || sx > szer || sy > wys) continue;
         const b = [sx - r - 2, sy - 8, sx + r + 6 + g.measureText(p.nazwa).width, sy + 7];
@@ -346,7 +369,7 @@ export default {
 
     function trafienie(sx, sy) {
       let najblizsza = null, odl = 16;
-      for (const p of D.planety) {
+      for (const p of P) {
         const [px, py] = naEkran(p.x, p.y);
         const d = Math.hypot(px - sx, py - sy);
         if (d < odl) { odl = d; najblizsza = p; }
@@ -392,9 +415,12 @@ export default {
           h('h2', p.nazwa),
           h('div.mapa-znaczki',
             p === tuPlaneta ? h('span.znaczek-tu', 'Twoja pozycja') : null,
-            p === celPlaneta ? h('span.znaczek-cel', 'Cel skoku') : null),
+            p === celPlaneta ? h('span.znaczek-cel', 'Cel skoku') : null,
+            p.zastrzezona ? h('span.znaczek-cel', 'Dane zastrzeżone') : null),
           h('table.tabela',
+            p.sektor ? wiersz('Sektor', p.sektor) : null,
             wiersz('Region', p.region || 'nieznany'),
+            p.kwadrat ? wiersz('Kwadrat', p.kwadrat) : null,
             wiersz('Współrzędne', `${liczba(p.x, 1)} · ${liczba(p.y, 1)}`),
             odleglosc !== null ? wiersz('Odległość od ciebie', `${liczba(odleglosc)} pc`) : null,
             wiersz('Grawitacja', nieznane(p.g, `${liczba(p.g, 2)} G`)),
@@ -421,7 +447,7 @@ export default {
       wyczysc(wyniki);
       if (!D || q.length < 2) { wyniki.hidden = true; return; }
       const zaczyna = (k) => k.startsWith(q);
-      const planety = D.planety.filter((p) => p.klucz.includes(q)).sort((a, b) => zaczyna(b.klucz) - zaczyna(a.klucz)).slice(0, 7);
+      const planety = P.filter((p) => p.klucz.includes(q)).sort((a, b) => zaczyna(b.klucz) - zaczyna(a.klucz)).slice(0, 7);
       const szlaki = D.szlaki.filter((s) => norm(s.nazwa).includes(q)).slice(0, 3);
       const pozycje = [
         ...planety.map((p) => h('li', { onclick: () => { przelec(p.x, p.y, Math.max(skala, 0.6), () => wybierz({ planeta: p })); koniec(p.nazwa); } },
@@ -519,7 +545,8 @@ export default {
         return; // bez zasięgu mapa działa dalej, tylko bez znaczników
       }
       if (!D) return;
-      const znajdz = (nazwa) => (nazwa ? D.wgKlucza.get(norm(nazwa)) || null : null);
+      ustawDodatkowe(pozycja.dodatkowe || []);
+      const znajdz = (nazwa) => (nazwa ? wgKlucza.get(norm(nazwa)) || null : null);
       tuPlaneta = znajdz(pozycja.tu);
       celPlaneta = pozycja.stan === 'nadprzestrzen' ? znajdz(pozycja.cel) : null;
       const grupy = new Map();
@@ -532,6 +559,32 @@ export default {
       statkiNaMapie = [...grupy].map(([planeta, statki]) => ({ planeta, statki }));
       przyciskTu.disabled = !tuPlaneta;
       if (wybrane?.planeta) wybierz(wybrane); // odśwież kartę (np. statki)
+    }
+
+    // Planety z katalogu MG spoza bazy mapy. Przebudowa tylko przy zmianie, żeby zaznaczenie
+    // i znaczniki dalej wskazywały te same obiekty.
+    function ustawDodatkowe(lista) {
+      const odcisk = JSON.stringify(lista);
+      if (odcisk === odciskDodatkowych && P.length) return;
+      odciskDodatkowych = odcisk;
+      dodatkowe = lista.map((d) => {
+        // Bez podanego regionu: region najbliższej planety z bazy.
+        let region = d.region;
+        if (!region) {
+          let min = Infinity;
+          for (const p of D.planety) {
+            const o = (p.x - d.x) ** 2 + (p.y - d.y) ** 2;
+            if (o < min) { min = o; region = p.region; }
+          }
+        }
+        return { nazwa: d.nazwa, region, x: d.x, y: d.y, g: 0, slonca: 0, ksiezyce: 0, doba: 0, rok: 0, srednica: 0,
+          sektor: d.sektor, kwadrat: d.kwadrat, zastrzezona: d.zastrzezona, klucz: norm(d.nazwa) };
+      });
+      const klucze = new Set(dodatkowe.map((p) => p.klucz));
+      P = [...D.planety.filter((p) => !klucze.has(p.klucz)), ...dodatkowe];
+      wgKlucza = new Map(P.map((p) => [p.klucz, p]));
+      if (wybrane?.planeta && !P.includes(wybrane.planeta)) wybierz(null);
+      odswiez();
     }
 
     // ---------- start ----------
@@ -549,6 +602,7 @@ export default {
 
     wczytajDane().then(async (d) => {
       D = d;
+      ustawDodatkowe([]);
       rozmiar();
       await pobierzPozycje();
       if (tuPlaneta) {

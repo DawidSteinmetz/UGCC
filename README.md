@@ -300,6 +300,13 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
   nadprzestrzeń), cel skoku i statki jej firm. **Planety z katalogu MG łączą się z mapą po nazwie**
   (bez wielkości liter, ogonków i spacji), więc planeta w katalogu powinna nazywać się tak jak
   na mapie, np. „Kessel”, „Nar Shaddaa”. Planeta spoza mapy po prostu nie dostaje znacznika.
+- **Planety spoza mapy i planety zastrzeżone** dodaje MG w katalogu (Katalog → Planety), nie
+  w plikach mapy: repo jest publiczne, a `assets/` może pobrać każdy. Pole
+  `"mapa": {"x": 8352, "y": -2990, "kwadrat": "Q-12"}` stawia planetę na mapie (y rośnie na
+  północ, `region` opcjonalny), a `"widoczna_dla": ["ISB-5023", "GOV-5401"]` ogranicza ją do tych
+  loginów (MG widzi zawsze). Inni gracze nie dostają jej z API w ogóle, a katalog wysyłany do
+  datapada (`katalog_dla_gracza()`) nie zawiera tych dwóch pól. Na mapie planeta zastrzeżona
+  to różowy romb z podpisem i znaczkiem „Dane zastrzeżone” na karcie.
 - Mapa nie zmienia zasad skoku: Nawigacja dalej porównuje współrzędne z polem `wspolrzedne`
   w katalogu.
 
