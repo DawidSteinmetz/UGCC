@@ -6,7 +6,7 @@ import { URZADZENIE } from './rdzen/urzadzenie.js';
 import { utworzScene, TYPY_PLANET } from './rdzen/scena.js';
 
 import holonet from './aplikacje/holonet.js';
-import harmonogram from './aplikacje/harmonogram.js';
+import kalendarz from './aplikacje/kalendarz.js';
 import dekoder from './aplikacje/dekoder.js';
 import frakcja from './aplikacje/frakcja.js';
 import ustawienia from './aplikacje/ustawienia.js';
@@ -17,7 +17,7 @@ import nawigacja, { odliczanie } from './aplikacje/nawigacja.js';
 import mapa from './aplikacje/mapa.js';
 import gielda from './aplikacje/gielda.js';
 
-const APLIKACJE = [karta, nawigacja, mapa, holonet, bank, gielda, firma, dekoder, harmonogram, frakcja, ustawienia];
+const APLIKACJE = [karta, nawigacja, mapa, holonet, bank, gielda, firma, dekoder, kalendarz, frakcja, ustawienia];
 
 const html = document.documentElement;
 const pulpit = document.getElementById('pulpit');

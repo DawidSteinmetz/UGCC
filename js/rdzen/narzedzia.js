@@ -72,9 +72,29 @@ export function godzina(d = new Date()) {
   return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 }
 
+// Kalendarz gry (jak w aplikacji Kalendarz): tydzień ma 5 dni, miesiąc 30 albo 25 dni,
+// a pozostałe dni realnego miesiąca to święta „H”, numerowane narastająco w roku.
+const dniMiesiaca = (y, m) => new Date(y, m + 1, 0).getDate();
+export const normDni = (y, m) => Math.floor(dniMiesiaca(y, m) / 5) * 5;
+export const dimMiesiaca = dniMiesiaca;
+
+function numerH(y, m, dzien) {
+  const bazaH = [0, 1, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22]; // tabela startowa świąt dla miesięcy
+  let n = bazaH[m] + (dzien - normDni(y, m));
+  if (m >= 2 && (y - PRZESUNIECIE_GST) % 4 === 2) n += 1;    // lata 14, 18, 22... są przestępne (luty ma o jedno święto więcej)
+  return n;
+}
+
+// Data realna (RRRR-MM-DD) → data w grze: dzień|miesiąc|rok albo H|numer|rok.
+export function dataGry(ds) {
+  const [y, mon, dzien] = ds.split('-').map(Number);
+  const ig = y - PRZESUNIECIE_GST;
+  if (dzien > normDni(y, mon - 1)) return `H|${numerH(y, mon - 1, dzien)}|${ig}`;
+  return `${dzien}|${mon}|${ig}`;
+}
+
 export function dataGST(d = new Date()) {
-  const p = (n) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}.${p(d.getMonth() + 1)} · GST${rokGST(d)}`;
+  return dataGry(iso(d));
 }
 
 export function miesiacGST(d) {

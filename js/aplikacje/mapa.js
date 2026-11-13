@@ -101,6 +101,7 @@ export default {
     let najechane = null;
     let pozycja = null;     // odpowiedź api('mapa')
     let tuPlaneta = null, celPlaneta = null;
+    let klatkaPodpisow = 0;
     let statkiNaMapie = []; // [{ planeta, statki: [...] }]
     let brudna = true;
     let ramka = 0;
@@ -267,13 +268,17 @@ export default {
           }
         }
       };
+      klatkaPodpisow++;
       for (const p of dodatkowe) {
         if (!p.zastrzezona) continue;
         const [sx, sy] = naEkran(p.x, p.y);
         zajmij([sx - 6, sy - 8, sx + 10 + g.measureText(p.nazwa).width, sy + 7]);
       }
-      for (const p of P) {
-        if (p.zastrzezona) continue;
+      // Planeta postaci i cel skoku dostają podpis w pierwszej kolejności (sąsiedzi ich nie zasłonią).
+      const wazne = [tuPlaneta, celPlaneta].filter(Boolean);
+      for (const p of [...wazne, ...P]) {
+        if (p.zastrzezona || (wazne.includes(p) && p.podpisana === klatkaPodpisow)) continue;
+        if (wazne.includes(p)) p.podpisana = klatkaPodpisow;
         const [sx, sy] = naEkran(p.x, p.y);
         if (sx < 0 || sy < 0 || sx > szer || sy > wys) continue;
         const b = [sx - r - 2, sy - 8, sx + r + 6 + g.measureText(p.nazwa).width, sy + 7];

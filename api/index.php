@@ -230,14 +230,15 @@ switch ($akcja) {
             'id' => id(),
             'data' => $data,
             'status' => $status,
-            'notatka' => pole('notatka', 300),
+            'notatka' => pole('notatka', 120),
             'uid' => $u['id'],
-            'postac' => $u['postac'],
+            // Jak w dawnym kalendarzu: można zgłosić dowolną postać (domyślnie własną).
+            'postac' => pole('postac', 40) ?: $u['postac'],
             'czas' => date('c'),
         ];
         zmien('harmonogram', function (&$w) use ($wpis) {
             // Jedna deklaracja na postać na dzień: nowa zastępuje starą.
-            $w = array_values(array_filter($w, fn($x) => !($x['uid'] === $wpis['uid'] && $x['data'] === $wpis['data'])));
+            $w = array_values(array_filter($w, fn($x) => !($x['uid'] === $wpis['uid'] && $x['data'] === $wpis['data'] && mb_strtolower($x['postac']) === mb_strtolower($wpis['postac']))));
             $w[] = $wpis;
         });
         odpowiedz(['wpis' => $wpis]);

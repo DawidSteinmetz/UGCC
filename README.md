@@ -31,7 +31,8 @@ js/system.js             start → rozruch → blokada → pulpit, menedżer apl
 js/rdzen/narzedzia.js    h() do budowania elementów, czas GST, pamięć urządzenia
 js/rdzen/api.js          łączność z api/ (błędy w języku świata)
 js/rdzen/urzadzenie.js   producent, model i nazwa systemu (zmieniajcie tutaj)
-js/aplikacje/*.js        aplikacje: holonet, dekoder, harmonogram, frakcja, ustawienia
+js/aplikacje/*.js        aplikacje: holonet, dekoder, kalendarz, frakcja, ustawienia…
+js/rdzen/kultury.js      sześć kultur kalendarza: nazwy miesięcy, dni i świąt
 api/index.php            jedno API dla wszystkiego (PHP 8.1+, dane w plikach)
 api/bank.php             logika banku (przelewy, odbiorcy, stałe dochody)
 api/firmy.php            firmy (profile), przewozy i wspólny katalog towarów i planet
@@ -60,14 +61,14 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
 | Nawigacja | gdzie jestem, dokąd i czym (pieszo, taksówka, pojazdy), przygotowanie statku do lotu, start, współrzędne skoku, lądowanie, bankomat, sklep | nowe |
-| Mapa galaktyki | 2578 planet, regiony i szlaki nadprzestrzenne, wyszukiwarka, „Jesteś tutaj”, cel skoku, statki firm postaci | dawna osobna strona `Mapa/` |
+| Mapa galaktyki | 2536 planet, regiony i szlaki nadprzestrzenne, wyszukiwarka, „Jesteś tutaj”, cel skoku, statki firm postaci | dawna osobna strona `Mapa/` |
 | Karta postaci | tożsamość, status w rejestrach, dokumenty, pozycja (planeta, współrzędne, miejsce, budynek), statystyki, reputacja, kontakty, ekwipunek, notatnik | nowe |
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
 | Giełda | notowania spółek i towarów, wykresy, kupno i sprzedaż przez Bank, portfel | dawne CDEX |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
-| Harmonogram | kalendarz miesięczny, deklaracje obecności postaci (jedna na dzień) | `/calendar/` |
+| Kalendarz | kalendarz sesji przeniesiony z dawnego `/calendar/`: tydzień 5 dni, święta „H”, sześć kultur, wpisy po dotknięciu dnia, rejestr, eksport do arkusza | `/calendar/` |
 | Sieć frakcji | planety i instalacje, zasoby (gracze zmieniają stany), drzewo dowodzenia | `/frakcja/gracz/` |
 | Ustawienia | alfabet (moduł ZPH), jasność, dane postaci, „o urządzeniu”, blokada | nowe |
 
@@ -330,6 +331,28 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
 - **Szybkie akcje na pulpicie:** podróż w toku z odliczaniem, „Przygotuj [statek] do lotu”
   i stan obsługi, „Wejdź na pokład”, najbliższy bankomat (do 5 km), taksówka.
 
+## Kalendarz sesji
+
+Aplikacja `js/aplikacje/kalendarz.js` zastąpiła Harmonogram. Zasady są takie same jak w dawnym
+kalendarzu, zmienił się tylko wygląd.
+
+- **Kalendarz gry:** miesiąc gry to miesiąc realny, rok gry to rok realny − 2010 (2026 → 16).
+  Tydzień ma 5 dni. Miesiąc ma 30 albo 25 dni „zwykłych”, a pozostałe dni realnego miesiąca
+  to **święta H**, numerowane narastająco w roku (31 stycznia = `H|1|16`, 31 grudnia = `H|23|16`).
+  Zwykłą datę zapisujemy `dzień|miesiąc|rok`. Funkcja `dataGry()` w `js/rdzen/narzedzia.js`
+  jest jedna dla całego systemu, więc tę samą datę pokazują pulpit, blokada i Holonet.
+- **Kultury** (`js/rdzen/kultury.js`): Imperial / Coruscant, Mandalorian, Sith, Wookiee, Twi'lek,
+  Huttese. Kultura zmienia nazwy miesięcy, dni i święta oraz kolor akcentu kalendarza.
+  Wybór zapamiętuje tablet.
+- **Wpisy:** dotknięcie dnia otwiera „Zgłoś dostępność” (postać, status, notatka do 120 znaków);
+  jest też formularz „Dodaj wpis” z datą. Pole postaci jest wypełnione własną postacią, ale można
+  wpisać inną. Jedna deklaracja na postać na dzień, nowa zastępuje starą.
+- **Usuwanie:** zamiast wspólnego hasła usuwa autor wpisu albo MG.
+- **Eksport „Arkusz”:** plik CSV otwierany w Excelu (bez zewnętrznych bibliotek, działa offline).
+- Dane i akcje serwera zostały po staremu (`harmonogram`, `harmonogram_dodaj`, `harmonogram_usun`),
+  więc zakładka Harmonogram w panelu MG działa bez zmian. Wpisy ze starego `entries.json` nie
+  zostały przeniesione.
+
 ## Mapa galaktyki
 
 - Aplikacja `js/aplikacje/mapa.js`, rysowana na `<canvas>`: planety, podpisy regionów, szlaki
@@ -355,8 +378,14 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
   usunięto z `assets/mapa/`. Ich dane leżą w `api/dane/planety_ukryte.php` (poza gitem, w formacie
   gotowym do katalogu: `nazwa`, `mapa` z x, y i regionem, `dane_mapy`). Odsłonięcie planety to
   wpis w katalogu MG z polami `mapa` i ewentualnie `widoczna_dla`.
-- Mapa nie zmienia zasad skoku: Nawigacja dalej porównuje współrzędne z polem `wspolrzedne`
-  w katalogu.
+- **Skok po współrzędnych z mapy:** Nawigacja przyjmuje współrzędne z karty planety na mapie
+  (np. `12 545,1 · -170,5`, tolerancja 1 jednostki) albo, jak wcześniej, tekst z pola
+  `wspolrzedne` w katalogu. Celem może być tylko planeta z katalogu MG. Dla planety z mapy
+  spoza katalogu komputer odpowiada, że nie ma danych podejścia.
+- **Paliwo na skok** zależy od odległości na mapie: 8% + 1% na każde 350 jednostek (Tatooine →
+  Kessel to 38%). Schodzi w chwili skoku, a przy braku paliwa skok jest odwołany. Planeta bez
+  położenia na mapie kosztuje ryczałtem 20%.
+- Planeta postaci i cel skoku mają na mapie pierwszeństwo podpisu (sąsiedzi ich nie zasłaniają).
 
 ## Widok z planety, start i skok
 
@@ -375,9 +404,10 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
 - **Orbita:** po wznoszeniu Nawigacja czeka na **współrzędne skoku** albo na lądowanie. Na razie współrzędne porównywane są z polem `wspolrzedne` planet
   w katalogu (wielkość liter, spacje i znaki inne niż cyfry, litery, kropka i minus nie mają
   znaczenia). Pełne zasady astronawigacji dopiszemy razem z mapą.
-- **Skok:** dobre współrzędne uruchamiają animację skoku i tunel u wszystkich na pokładzie.
+- **Skok:** dobre współrzędne uruchamiają animację skoku i tunel u wszystkich na pokładzie
+  (paliwo: zobacz Mapa galaktyki).
   Wyjście z nadprzestrzeni wywołuje MG (panel → Stan postaci → Statki w locie → **Zakończ
-  skok**). Statek pojawia się przy celu (−20% paliwa) bez lądowiska, a załoga widzi wyjście
+  skok**). Statek pojawia się przy celu bez lądowiska, a załoga widzi wyjście
   z nadprzestrzeni z planetą.
 - **Lądowanie** (Nawigacja na orbicie), lądowiska to lokacje typu hangar, platforma, port:
   - **automat:** wybór z listy lądowisk, które postać zna (publiczne, firmowe, ze „znanych

@@ -135,6 +135,44 @@ function mapa_dodatkowe(array $u): array
     return $w;
 }
 
+// ----- mapa galaktyki po stronie serwera -----
+// Położenie planety z katalogu na mapie: pole „mapa” (planety dodane przez MG) albo dane
+// z assets/mapa/planety.json, dopasowane po nazwie (jak w datapadzie).
+
+function mapa_norm(string $t): string
+{
+    $t = strtr(mb_strtolower($t), ['ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n', 'ó' => 'o', 'ś' => 's', 'ź' => 'z', 'ż' => 'z']);
+    return preg_replace('/[^a-z0-9]/', '', $t);
+}
+
+function mapa_baza(): array
+{
+    static $baza = null;
+    if ($baza === null) {
+        $baza = [];
+        $plik = __DIR__ . '/../assets/mapa/planety.json';
+        foreach (is_file($plik) ? (json_decode((string) file_get_contents($plik), true) ?: []) : [] as $p) {
+            $baza[mapa_norm((string) $p[0])] = ['x' => (float) $p[2], 'y' => (float) $p[3]];
+        }
+    }
+    return $baza;
+}
+
+function mapa_pozycja(array $planeta): ?array
+{
+    if (isset($planeta['mapa']['x'], $planeta['mapa']['y'])) return ['x' => (float) $planeta['mapa']['x'], 'y' => (float) $planeta['mapa']['y']];
+    return mapa_baza()[mapa_norm((string) ($planeta['nazwa'] ?? ''))] ?? null;
+}
+
+// Paliwo na skok (% zbiornika): 8% na rozruch hipernapędu + 1% na każde 350 jednostek mapy.
+// Bez położenia na mapie (planeta spoza mapy): ryczałt 20%.
+function skok_paliwo(?array $skad, ?array $dokad): array
+{
+    if (!$skad || !$dokad) return ['paliwo' => 20, 'dystans' => null];
+    $d = hypot($skad['x'] - $dokad['x'], $skad['y'] - $dokad['y']);
+    return ['paliwo' => (int) min(95, 8 + round($d / 350)), 'dystans' => (int) round($d)];
+}
+
 function ruch_tempo(): float
 {
     return max(0.05, min(60, (float) (wczytaj('katalog', [])['ustawienia']['tempo'] ?? 1)));
@@ -666,10 +704,30 @@ function obsluz_ruch(string $akcja, bool $post): void
             foreach (katalog()['planety'] as $p) {
                 if (($p['wspolrzedne'] ?? '') !== '' && $norm($p['wspolrzedne']) === $wsp) $cel = $p;
             }
+            // Współrzędne z mapy galaktyki („x · y” z karty planety), z tolerancją 1 jednostki.
+            if (!$cel && preg_match_all('/-?\d+(?:[.,]\d+)?/', str_replace("\u{2212}", '-', preg_replace('/[\s\x{a0}\x{202f}]/u', '', (string) (wejscie()['wspolrzedne'] ?? ''))), $m) && count($m[0]) === 2) {
+                [$x, $y] = array_map(fn($v) => (float) str_replace(',', '.', $v), $m[0]);
+                $najblizej = 1.0;
+                foreach (katalog()['planety'] as $p) {
+                    $poz = mapa_pozycja($p);
+                    if ($poz && ($odl = hypot($poz['x'] - $x, $poz['y'] - $y)) <= $najblizej) {
+                        $najblizej = $odl;
+                        $cel = $p;
+                    }
+                }
+                if (!$cel) {
+                    foreach (mapa_baza() as $poz) {
+                        if (hypot($poz['x'] - $x, $poz['y'] - $y) <= 1.0) blad('Układ istnieje, ale komputer nie ma dla niego danych podejścia. Skok odwołany.');
+                    }
+                }
+            }
             if (!$cel) blad('Komputer nawigacyjny nie rozpoznaje tych współrzędnych.');
             if ($cel['id'] === ($statek['lokalizacja'] ?? '')) blad('Jesteś już przy tej planecie.');
-            ruch_zmien_statek($klucz, function (&$s) use ($cel) {
+            $koszt = skok_paliwo(mapa_pozycja(ruch_planeta($statek['lokalizacja'] ?? '')), mapa_pozycja($cel));
+            if ((int) ($statek['paliwo'] ?? 0) < $koszt['paliwo']) blad("Za mało paliwa na ten skok: potrzeba {$koszt['paliwo']}%, w zbiorniku jest " . (int) ($statek['paliwo'] ?? 0) . '%.');
+            ruch_zmien_statek($klucz, function (&$s) use ($cel, $koszt) {
                 $s['cel'] = $cel['id'];
+                $s['paliwo'] = max(0, (int) ($s['paliwo'] ?? 0) - $koszt['paliwo']); // paliwo schodzi przy skoku
             });
             lacznosc_zamknij($klucz);
             $scena = ['scena' => 'wejscie', 'planeta' => $cel['typ'] ?? 'skalista', 'odleglosc' => 'srednio',
@@ -678,7 +736,7 @@ function obsluz_ruch(string $akcja, bool $post): void
             zmien('sceny', function (&$s) use ($zaloga, $scena) {
                 foreach ($zaloga as $uid) $s[$uid] = $scena;
             });
-            odpowiedz(['ok' => true, 'cel' => $cel['nazwa']]);
+            odpowiedz(['ok' => true, 'cel' => $cel['nazwa'], 'paliwo' => $koszt['paliwo'], 'dystans' => $koszt['dystans']]);
 
         case 'lacznosc_wyslij':
             // Gracz wywołuje kontrolę lotów planety, przy której jest (jeśli planeta ją ma).
@@ -772,7 +830,6 @@ function obsluz_ruch(string $akcja, bool $post): void
             ruch_zmien_statek($klucz, function (&$s) use ($cel) {
                 $s['lokalizacja'] = $cel['id'];
                 $s['hangar'] = ''; // lądowisko trzeba wybrać, wpisać albo dostać od kontroli lotów
-                $s['paliwo'] = max(0, (int) ($s['paliwo'] ?? 100) - 20);
                 unset($s['cel']);
             });
             lacznosc_nowa($klucz, $cel);

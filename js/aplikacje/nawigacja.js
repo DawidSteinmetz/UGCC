@@ -154,12 +154,12 @@ export default {
         const koniec = teraz() + (p.wznoszenie_ms - p.od_zmiany_ms) / 1000;
         return panel(paliwo, h('p', 'Wznoszenie przez atmosferę. Na orbicie za ', h('b', { 'data-koniec': koniec, 'data-przeladuj': '1' }, odliczanie(koniec - teraz()))));
       }
-      const wsp = h('input', { placeholder: 'np. R-4 · 112.07 / -33.90', spellcheck: false, autocomplete: 'off' });
+      const wsp = h('input', { placeholder: 'np. 9 665,8 · -10 099,1', spellcheck: false, autocomplete: 'off' });
       return h('div',
         panel(paliwo,
-          h('p.slaby.maly-tekst', 'Statek na orbicie. Komputer nawigacyjny czeka na współrzędne skoku.'),
+          h('p.slaby.maly-tekst', 'Statek na orbicie. Komputer nawigacyjny czeka na współrzędne skoku (z karty planety na mapie galaktyki).'),
           h('div.rzad', h('div.pole.rozpycha', { style: 'margin:0' }, h('label', 'Współrzędne skoku'), wsp),
-            h('button.przycisk', { style: 'align-self:flex-end', onclick: () => akcja('skok', { wspolrzedne: wsp.value }, (r) => `Obliczono skok. Kurs: ${r.cel}.`) }, 'Skok'))),
+            h('button.przycisk', { style: 'align-self:flex-end', onclick: () => akcja('skok', { wspolrzedne: wsp.value }, (r) => `Obliczono skok. Kurs: ${r.cel}${r.dystans ? ` · dystans ${r.dystans}` : ''} · paliwo −${r.paliwo}%.`) }, 'Skok'))),
         ladowanie(p),
         lacznosc(p));
     }
