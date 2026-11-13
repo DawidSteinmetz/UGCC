@@ -34,6 +34,7 @@ js/rdzen/urzadzenie.js   producent, model i nazwa systemu (zmieniajcie tutaj)
 js/aplikacje/*.js        aplikacje: holonet, dekoder, harmonogram, frakcja, ustawienia
 api/index.php            jedno API dla wszystkiego (PHP 8.1+, dane w plikach)
 api/bank.php             logika banku (przelewy, odbiorcy, stałe dochody)
+api/firmy.php            firmy (profile) i wspólny katalog towarów i planet
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -47,6 +48,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5 | hub, stream, `/recruitment/` |
+| Firma | panel firmy zależny od profilu; na razie przewozy: flota, magazyn, załoga, szlaki | nowe |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
 | Harmonogram | kalendarz miesięczny, deklaracje obecności postaci (jedna na dzień) | `/calendar/` |
@@ -72,6 +74,36 @@ w `js/system.js` i do `PLIKI` w `sw.js`. Wzorem może być `ustawienia.js`, najp
   wypłaty, których termin minął (z datą należnego dnia). Strefa czasowa: Europe/Warsaw.
 - Cały bank to jeden plik danych zmieniany pod blokadą, więc przelew wykonuje się w całości
   albo wcale.
+
+## Firmy
+
+- **Wspólny katalog** (panel MG → Katalog): towary (nazwa, kategoria, masa w t na jednostkę,
+  jednostka) i planety. Tę samą listę towarów użyje giełda. Do planet dojdzie później mapa
+  (współrzędne, odległości).
+- Firma ma **profil**, który decyduje o interfejsie. Profil to para plików:
+  `js/aplikacje/firma/<profil>.js` (zakładki) i logika w `api/firmy.php` (dane i operacje).
+  Nowy profil: dopisać go do `PROFILE` w `js/aplikacje/firma.js`, `PROFILE_FIRM` w `api/firmy.php`
+  (razem z `firma_dane_puste` i operacjami) oraz `PROFILE_FIRM` w `gm/mg.js`.
+- Członkowie firmy: **właściciel** i **menedżer** mogą zmieniać dane, **pracownik** tylko podgląda.
+  Postać należąca do jednej firmy trafia od razu do jej panelu.
+
+### Profil: przewozy
+
+- **Flota:** statki z ładownością (t), stanem, położeniem i kapitanem. Gracz może zmienić nazwę.
+- **Magazyn:** towar firmy na poszczególnych planetach.
+- **Załoga:** gracz przydziela ludzi do statków i wyznacza kapitana.
+- **Szlaki:** plan kursu, czyli statek i przystanki, a na każdym rozładunek lub załadunek.
+  Serwer na bieżąco sprawdza plan: start tam, gdzie stoi statek, ładowność po każdym przystanku,
+  rozładunek tylko tego, co jest na pokładzie, załadunek tylko tego, co jest w magazynie, i pustą
+  ładownię na końcu.
+- Gracz składa **plan lotu**, a MG (panel → Firmy → „Kursy do obsłużenia”) przyjmuje go
+  („w trasie”), kończy albo odrzuca z uwagą. Zakończenie przenosi towar między magazynami
+  i stawia statek na ostatniej planecie. Przy przyjęciu i zakończeniu plan jest sprawdzany
+  ponownie, na aktualnych magazynach.
+- MG ustawia flotę, załogę i magazyn w edytorze JSON. Planety, towary, statki i osoby wpisuje
+  po nazwie. Zapis w edytorze nie rusza kursów graczy.
+- Na razie bez pieniędzy: firma nie ma własnego rachunku, pensje są tylko informacją, a kurs
+  nie kosztuje paliwa. To naturalne następne kroki razem z giełdą i mapą.
 
 ## Konta i bezpieczeństwo
 

@@ -12,6 +12,7 @@ const STRAZNIK = "<?php http_response_code(404); exit; ?>\n";
 
 date_default_timezone_set('Europe/Warsaw');
 require __DIR__ . '/bank.php';
+require __DIR__ . '/firmy.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict', 'secure' => !empty($_SERVER['HTTPS'])]);
 session_name('dp_sesja');
@@ -150,6 +151,7 @@ if ($post && ($_SERVER['HTTP_X_DATAPAD'] ?? '') !== '1') {
 }
 
 obsluz_bank($akcja, $post);
+obsluz_firmy($akcja, $post);
 
 switch ($akcja) {
 

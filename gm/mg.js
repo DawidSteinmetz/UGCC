@@ -80,7 +80,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { konta: 'Konta', bank: 'Bank', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { konta: 'Konta', bank: 'Bank', firmy: 'Firmy', katalog: 'Katalog', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +90,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ konta, bank, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ konta, bank, firmy, katalog, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -208,6 +208,173 @@ async function bank(edytowany = null) {
         transakcje.map((t) => h('tr', h('td', new Date(t.czas).toLocaleString('pl-PL')), h('td', TYPY_OPERACJI[t.typ] || t.typ),
           h('td', t.od_nazwa), h('td', t.do_nazwa), h('td', kr(t.kwota)), h('td', t.tytul || ''))))),
   );
+}
+
+// ---------- katalog: towary i planety ----------
+
+const WZOR_TOWAROW = [
+  { nazwa: 'Zboże', kategoria: 'żywność', masa: 1, jednostka: 't' },
+  { nazwa: 'Ogniwa paliwowe', kategoria: 'paliwo', masa: 2, jednostka: 'skrzynia' },
+  { nazwa: 'Części hipernapędu', kategoria: 'technika', masa: 5, jednostka: 'kontener' },
+];
+const WZOR_PLANET = [
+  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże' },
+  { nazwa: 'Tatooine', sektor: 'Arkanis' },
+];
+
+async function katalog() {
+  const { katalog: k } = await api('mg_katalog');
+  const towary = h('textarea', { style: 'min-height:260px' }, JSON.stringify(k.towary, null, 2));
+  const planety = h('textarea', { style: 'min-height:200px' }, JSON.stringify(k.planety, null, 2));
+  const info = h('div');
+  glowna.append(h('div.karta',
+    h('h2', 'Katalog gry'),
+    h('p.slaby', 'Wspólna lista dla całej gry: towary używają firmy (a później giełda), planety używa planowanie kursów (później dojdzie mapa). '
+      + 'Pole „id” nadaje serwer — nie zmieniaj go, bo odwołują się do niego magazyny i kursy. Nowe pozycje dopisuj bez „id”. '
+      + 'Towar: nazwa, kategoria, masa (t na jednostkę, liczba całkowita), jednostka.'),
+    info,
+    h('label', 'Towary', towary), h('br'),
+    h('label', 'Planety', planety), h('br'),
+    h('div.rzad',
+      btn('Zapisz katalog', async () => {
+        try {
+          await api('mg_katalog_zapisz', { towary: JSON.parse(towary.value), planety: JSON.parse(planety.value) });
+          wyczysc(glowna); await katalog();
+          glowna.prepend(msg('Zapisano katalog.', 'ok'));
+        } catch (e) {
+          wyczysc(info).append(msg(e instanceof SyntaxError ? 'Błąd w JSON: ' + e.message : e.message));
+        }
+      }, '.glowny'),
+      btn('Wstaw przykład', () => {
+        if (towary.value.trim() === '[]') towary.value = JSON.stringify(WZOR_TOWAROW, null, 2);
+        if (planety.value.trim() === '[]') planety.value = JSON.stringify(WZOR_PLANET, null, 2);
+      }))));
+}
+
+// ---------- firmy ----------
+
+const PROFILE_FIRM = { transport: 'Transport' };
+const ROLE_FIRMY = { wlasciciel: 'właściciel', menedzer: 'menedżer', pracownik: 'pracownik' };
+const STATUS_KURSU = { szkic: 'szkic', zgloszony: 'CZEKA NA DECYZJĘ', w_realizacji: 'w trasie', zakonczony: 'zakończony', odrzucony: 'odrzucony' };
+
+// Dane firmy do edytora: identyfikatory planet, towarów, statków i osób zamienione na nazwy.
+function daneDoEdycji(d, kat) {
+  const pl = Object.fromEntries(kat.planety.map((p) => [p.id, p.nazwa]));
+  const tw = Object.fromEntries(kat.towary.map((t) => [t.id, t.nazwa]));
+  const st = Object.fromEntries(d.flota.map((s) => [s.id, s.nazwa]));
+  const os = Object.fromEntries(d.zaloga.map((z) => [z.id, z.imie]));
+  return {
+    flota: d.flota.map((s) => ({ ...s, lokalizacja: pl[s.lokalizacja] || '', kapitan: os[s.kapitan] || '' })),
+    zaloga: d.zaloga.map((z) => ({ ...z, statek: st[z.statek] || '' })),
+    magazyn: d.magazyn.map((m) => ({ planeta: pl[m.planeta] || m.planeta, towar: tw[m.towar] || m.towar, ilosc: m.ilosc })),
+  };
+}
+
+const WZOR_TRANSPORTU = {
+  flota: [{ nazwa: 'Szary Wróbel', klasa: 'frachtowiec YT-1300', ladownosc: 100, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Dax Morrow' }],
+  zaloga: [
+    { imie: 'Dax Morrow', funkcja: 'pilot', pensja: 300, statek: 'Szary Wróbel' },
+    { imie: 'R5-K2', funkcja: 'droid astromechaniczny', pensja: 0, statek: '' },
+  ],
+  magazyn: [{ planeta: 'Zephyria', towar: 'Zboże', ilosc: 40 }],
+};
+
+async function firmy() {
+  const { firmy: lista, katalog: kat } = await api('mg_firmy');
+  const { uzytkownicy } = await api('mg_uzytkownicy');
+  const gracze = uzytkownicy.filter((u) => u.rola !== 'mg');
+  const postac = Object.fromEntries(uzytkownicy.map((u) => [u.id, u.postac]));
+  const odswiez = async (t) => { wyczysc(glowna); await firmy(); if (t) glowna.prepend(msg(t, 'ok')); };
+
+  // Kursy czekające na decyzję — na górze, bo to codzienna robota MG.
+  const czekajace = lista.flatMap((f) => (f.dane.szlaki || [])
+    .filter((s) => ['zgloszony', 'w_realizacji'].includes(s.status)).map((s) => ({ f, s })));
+  if (czekajace.length) {
+    const pl = Object.fromEntries(kat.planety.map((p) => [p.id, p.nazwa]));
+    const tw = Object.fromEntries(kat.towary.map((t) => [t.id, t.nazwa]));
+    glowna.append(h('div.karta', h('h2', `Kursy do obsłużenia (${czekajace.length})`),
+      czekajace.map(({ f, s }) => {
+        const uwagi = h('input', { placeholder: 'uwagi dla graczy (np. powód odrzucenia)' });
+        const statek = f.dane.flota.find((x) => x.id === s.statek)?.nazwa || '?';
+        const zmien = (status, pytanie) => bezpiecznie(async () => {
+          if (pytanie && !confirm(pytanie)) return;
+          await api('mg_szlak_status', { firma: f.id, szlak: s.id, status, uwagi: uwagi.value });
+          await odswiez('Zmieniono status kursu.');
+        });
+        return h('div', { style: 'border-top:1px solid var(--linia);padding:12px 0' },
+          h('div', h('b', `${f.nazwa}: ${s.nazwa}`), h('span.slaby', `  · ${statek} · ${STATUS_KURSU[s.status]} · zgłosił(a) ${s.autor || '?'}`)),
+          h('ol', { style: 'margin:6px 0' }, s.przystanki.map((p) => h('li', pl[p.planeta] || '?',
+            p.operacje.length ? h('span.slaby', ' — ' + p.operacje.map((o) => `${o.typ === 'zaladunek' ? 'załaduj' : 'rozładuj'} ${o.ilosc} × ${tw[o.towar] || '?'}`).join(', ')) : null))),
+          s.notatka ? h('div.slaby', 'Notatka graczy: ' + s.notatka) : null,
+          h('div.rzad', { style: 'margin-top:8px' },
+            h('div', { style: 'flex:1;min-width:220px' }, uwagi),
+            s.status === 'zgloszony' ? btn('Przyjmij (w trasie)', zmien('w_realizacji'), '.glowny') : null,
+            s.status === 'w_realizacji' ? btn('Zakończ i rozlicz', zmien('zakonczony', 'Zakończyć kurs? Magazyny i położenie statku zmienią się zgodnie z planem.'), '.glowny') : null,
+            btn('Odrzuć', zmien('odrzucony'), '.zly')));
+      })));
+  }
+
+  // Edytor jednej firmy (nowej albo istniejącej).
+  const edytor = (f) => {
+    const nowa = !f;
+    f = f || { id: '', nazwa: '', profil: 'transport', czlonkowie: [], dane: { flota: [], zaloga: [], magazyn: [] } };
+    const nazwa = h('input', { value: f.nazwa });
+    const profil = h('select', { disabled: !nowa }, Object.entries(PROFILE_FIRM).map(([k, n]) => h('option', { value: k, selected: k === f.profil }, n)));
+    const czlonkowie = h('div');
+    const wiersze = [];
+    const dodajCzlonka = (c = { uid: gracze[0]?.id, rola: 'pracownik' }) => {
+      const kto = h('select', gracze.map((u) => h('option', { value: u.id, selected: u.id === c.uid }, `${u.postac} (${u.login})`)));
+      const rola = h('select', Object.entries(ROLE_FIRMY).map(([k, n]) => h('option', { value: k, selected: k === c.rola }, n)));
+      const wiersz = h('div.rzad', { style: 'margin-bottom:6px' }, h('div', { style: 'flex:2' }, kto), h('div', { style: 'flex:1' }, rola),
+        btn('×', () => { wiersz.remove(); wiersze.splice(wiersze.indexOf(para), 1); }, '.zly'));
+      const para = { kto, rola };
+      wiersze.push(para);
+      czlonkowie.append(wiersz);
+    };
+    f.czlonkowie.forEach(dodajCzlonka);
+    const dane = h('textarea', { style: 'min-height:320px' }, JSON.stringify(daneDoEdycji(f.dane, kat), null, 2));
+    const info = h('div');
+    const zapisz = async () => {
+      try {
+        await api('mg_firma_zapisz', {
+          id: f.id, nazwa: nazwa.value, profil: profil.value,
+          czlonkowie: wiersze.map((w) => ({ uid: w.kto.value, rola: w.rola.value })),
+          dane: JSON.parse(dane.value),
+        });
+        await odswiez(`Zapisano firmę ${nazwa.value}.`);
+      } catch (e) {
+        wyczysc(info).append(msg(e instanceof SyntaxError ? 'Błąd w JSON: ' + e.message : e.message));
+      }
+    };
+    return h('div.karta',
+      h('h2', nowa ? 'Nowa firma' : f.nazwa),
+      info,
+      h('div.siatka', pole('Nazwa', nazwa), pole('Profil', profil)),
+      h('label', 'Członkowie (właściciel i menedżer mogą planować kursy i zmieniać przydziały; pracownik tylko podgląda)'),
+      czlonkowie,
+      btn('+ Członek', () => dodajCzlonka()), h('br'), h('br'),
+      h('label', 'Flota, załoga, magazyn (JSON). Planety, towary, statki i osoby wpisuj po nazwie. Stany statku: sprawny, uszkodzony, w naprawie, w trasie.', dane),
+      h('br'),
+      h('div.rzad',
+        btn('Zapisz', zapisz, '.glowny'),
+        btn('Wstaw przykład', () => { dane.value = JSON.stringify(WZOR_TRANSPORTU, null, 2); }),
+        nowa ? null : btn('Usuń firmę', bezpiecznie(async () => {
+          if (!confirm(`Usunąć firmę ${f.nazwa} razem z flotą i magazynami?`)) return;
+          await api('mg_firma_usun', { id: f.id });
+          await odswiez('Usunięto firmę.');
+        }), '.zly')));
+  };
+
+  glowna.append(h('div.karta',
+    h('h2', `Firmy (${lista.length})`),
+    lista.length
+      ? h('table', h('tr', h('th', 'Nazwa'), h('th', 'Profil'), h('th', 'Członkowie'), h('th', 'Statki'), h('th', '')),
+        lista.map((f) => h('tr', h('td', f.nazwa), h('td', PROFILE_FIRM[f.profil] || f.profil),
+          h('td', f.czlonkowie.map((c) => `${postac[c.uid] || '?'} (${ROLE_FIRMY[c.rola]})`).join(', ') || '—'),
+          h('td', f.dane.flota?.length ?? 0),
+          h('td', btn('Edytuj', () => { const e = edytor(f); glowna.querySelector('#edytor-firmy').replaceChildren(e); e.scrollIntoView(); })))))
+      : h('p.slaby', 'Brak firm. Najpierw uzupełnij katalog (towary, planety), potem załóż firmę.')),
+  h('div#edytor-firmy', edytor(null)));
 }
 
 // ---------- dokumenty dekodera ----------
