@@ -447,15 +447,20 @@ Przy pierwszym wejściu panel MG pozwala założyć konto MG. W panelu MG zakła
 
 ## Wdrożenie na b0r5.pl
 
-1. Wgrać zawartość repo do korzenia domeny, **bez ruszania `/_/` i `/__/`**.
-2. Upewnić się, że PHP na serwerze ma wersję co najmniej 8.1 i może zapisywać w `api/dane/`.
-3. Wejść na `/gm/`, założyć konto MG, potem konta graczy.
-4. Na tabletach: Chrome → „Dodaj do ekranu głównego”. Uruchomiony z ikony datapad działa na
-   pełnym ekranie, bez paska przeglądarki.
-5. Po zmianie plików systemu podbić `WERSJA` w `sw.js`, żeby tablety pobrały nowe pliki.
+Wgrywa się samo: każda zmiana na gałęzi **`main`** uruchamia `.github/workflows/wdrozenie.yml`,
+który przez FTP (TLS) wysyła zmienione pliki do katalogu `/b0r5.pl/UGCC/` na serwerze.
+Postęp widać w zakładce **Actions** na GitHubie; tam też jest ręczne „Run workflow”.
 
-Stare adresy (`/calendar/`, `/frakcja/`, `/dekoder/`, `/recruitment/`) przestaną być potrzebne.
-Warto ustawić przekierowania na `/`.
+- **Sekrety** (Settings → Secrets and variables → Actions): `FTP_SERVER`, `FTP_USERNAME`,
+  `FTP_PASSWORD`. Hasła nie ma w repozytorium i nie może się tam znaleźć (repo jest publiczne).
+- **Dane gry** (`api/dane/`) nie są w repozytorium, więc wdrożenie ich nie nadpisuje ani nie
+  usuwa. Automat usuwa z serwera tylko pliki, które sam wcześniej wgrał.
+- Na serwer nie trafiają: `README.md`, `narzedzia/`, `.github/`.
+- **Pierwsze uruchomienie:** PHP 8.1 lub nowsze i prawo zapisu w `api/dane/`. Potem wejść na
+  `/UGCC/gm/`, założyć konto MG i konta graczy.
+- **Tablety:** Chrome → „Dodaj do ekranu głównego”. Po zmianie plików systemu podbić `WERSJA`
+  w `sw.js`, żeby tablety pobrały nowe pliki.
+- Gałęzie robocze (np. `ccr-…`) nie wdrażają się. Zmiana trafia na serwer po scaleniu z `main`.
 
 ## Czcionka Aurebesh
 
