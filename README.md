@@ -307,6 +307,10 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
   loginów (MG widzi zawsze). Inni gracze nie dostają jej z API w ogóle, a katalog wysyłany do
   datapada (`katalog_dla_gracza()`) nie zawiera tych dwóch pól. Na mapie planeta zastrzeżona
   to różowy romb z podpisem i znaczkiem „Dane zastrzeżone” na karcie.
+- **Planety tajne w świecie gry** (zaginione, ukryte, obszary nieznane Republice i Imperium)
+  usunięto z `assets/mapa/`. Ich dane leżą w `api/dane/planety_ukryte.php` (poza gitem, w formacie
+  gotowym do katalogu: `nazwa`, `mapa` z x, y i regionem, `dane_mapy`). Odsłonięcie planety to
+  wpis w katalogu MG z polami `mapa` i ewentualnie `widoczna_dla`.
 - Mapa nie zmienia zasad skoku: Nawigacja dalej porównuje współrzędne z polem `wspolrzedne`
   w katalogu.
 
