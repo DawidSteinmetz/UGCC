@@ -80,7 +80,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { stan: 'Stan postaci', konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { stan: 'Stan postaci', karty: 'Karty postaci', konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +90,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ stan: stanPostaci, konta, bank, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ stan: stanPostaci, karty: kartyPostaci, konta, bank, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -218,7 +218,8 @@ const WZOR_TOWAROW = [
   { nazwa: 'Części hipernapędu', kategoria: 'technika', masa: 5, jednostka: 'kontener', cena: 900 },
 ];
 const WZOR_OFERT = [
-  { nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', cena: 5000, pojemnosc: 40, pensja: 15, opis: 'Stare sztolnie, żyła rudy na wyczerpaniu.' },
+  { nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', wspolrzedne: 'Z-04 · 12.7 / 88.1', powierzchnia: 2400, pietra: 2, szyby: 6, cena: 5000, pojemnosc: 40, pensja: 15, opis: 'Stare sztolnie, żyła rudy na wyczerpaniu.' },
+  { nazwa: 'Hangar 7', typ: 'hangar', planeta: 'Zephyria', wspolrzedne: 'Z-01 · 3.2 / 4.9', powierzchnia: 900, pietra: 1, szyby: 0, cena: 800, pojemnosc: 5, pensja: 10 },
 ];
 const WZOR_PLANET = [
   { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', specyfika: { 'żywność': 0.7, technika: 1.3 } },
@@ -248,7 +249,7 @@ async function katalog() {
     info,
     h('label', 'Towary', towary), h('br'),
     h('label', 'Planety', planety), h('br'),
-    h('label', 'Rynek nieruchomości — oferty budynków do kupienia przez firmy (nazwa, typ, planeta po nazwie, cena, pojemnosc, pensja na pracownika, opis). Kupiona oferta znika.', oferty), h('br'),
+    h('label', 'Rynek nieruchomości — oferty budynków do kupienia przez firmy (nazwa, typ, planeta po nazwie, wspolrzedne, powierzchnia w m², pietra nad ziemią, szyby = poziomy pod ziemią, cena, pojemnosc, pensja na pracownika, opis). Kupiona oferta znika.', oferty), h('br'),
     h('div.rzad',
       btn('Zapisz katalog', async () => {
         try {
@@ -283,6 +284,8 @@ const ODLEGLOSCI = { blisko: 'blisko (planeta wypełnia dół ekranu)', srednio:
 
 async function stanPostaci() {
   const { postacie } = await api('mg_sceny');
+  const { postacie: karty, budynki } = await api('mg_karty');
+  const pozycje = Object.fromEntries(karty.map((k) => [k.uid, k.karta.pozycja]));
   let planetyKatalogu = [];
   try { planetyKatalogu = (await api('mg_katalog')).katalog.planety.map((p) => p.nazwa); } catch { /* katalog pusty */ }
   const wybrane = new Set(JSON.parse(sessionStorage.getItem('mg.sceny.wybrane') || '[]'));
@@ -309,17 +312,37 @@ async function stanPostaci() {
     }
   };
   const opis = (sc) => [SCENY[sc.scena], ['wyjscie', 'orbita'].includes(sc.scena) ? `${PLANETY[sc.planeta]}, ${sc.odleglosc}` : '', sc.miejsce, sc.opis].filter(Boolean).join(' · ');
+  const nazwaBudynku = Object.fromEntries(budynki.map((b) => [b.klucz, `${b.nazwa} (${b.firma})`]));
+  const opisPozycji = (p) => (p ? [p.wspolrzedne, p.miejsce, nazwaBudynku[p.budynek]].filter(Boolean).join(' · ') : '');
+
+  // Pozycja (karta postaci): planeta, współrzędne, miejsce, budynek.
+  const poz = {
+    planeta: h('input', { list: 'mg-planety', placeholder: 'np. Kessel' }),
+    wspolrzedne: h('input', { placeholder: 'np. K-17 · 34.12 / -77.80' }),
+    miejsce: h('input', { placeholder: 'np. pokój 14, hotel Pod Bantą' }),
+    budynek: h('select', h('option', { value: '' }, '— żaden —'), budynki.map((b) => h('option', { value: b.klucz }, `${b.nazwa} (${b.firma})`))),
+  };
+  const ustawPozycje = async () => {
+    try {
+      await api('mg_pozycja_ustaw', { ...Object.fromEntries(Object.entries(poz).map(([k, el]) => [k, el.value])), uids: [...wybrane] });
+      wyczysc(glowna);
+      await stanPostaci();
+      glowna.prepend(msg('Ustawiono pozycję.', 'ok'));
+    } catch (e) {
+      wyczysc(info).append(msg(e.message));
+    }
+  };
 
   glowna.append(
     h('datalist#mg-planety', planetyKatalogu.map((n) => h('option', { value: n }))),
     h('div.karta',
       h('h2', 'Kto?'),
       h('p.slaby', 'Zaznacz postacie, które są w tym samym miejscu (np. na pokładzie jednego statku). Zaznaczenie zostaje do zamknięcia karty.'),
-      h('table', h('tr', h('th', ''), h('th', 'Postać'), h('th', 'Frakcja'), h('th', 'Teraz widzi')),
+      h('table', h('tr', h('th', ''), h('th', 'Postać'), h('th', 'Frakcja'), h('th', 'Teraz widzi'), h('th', 'Pozycja')),
         postacie.map((p) => {
           const cb = h('input', { type: 'checkbox', checked: wybrane.has(p.uid), style: 'width:auto' });
           cb.addEventListener('change', () => { cb.checked ? wybrane.add(p.uid) : wybrane.delete(p.uid); zapamietaj(); });
-          return h('tr', h('td', cb), h('td', p.postac), h('td', p.frakcja), h('td.slaby', opis(p.scena)));
+          return h('tr', h('td', cb), h('td', p.postac), h('td', p.frakcja), h('td.slaby', opis(p.scena)), h('td.slaby', opisPozycji(pozycje[p.uid])));
         })),
       h('div.rzad', { style: 'margin-top:8px' },
         btn('Zaznacz wszystkich', () => { postacie.forEach((p) => wybrane.add(p.uid)); zapamietaj(); wyczysc(glowna); stanPostaci(); }),
@@ -339,6 +362,74 @@ async function stanPostaci() {
       h('p.slaby', 'Typ planety i odległość działają przy wyjściu z nadświetlnej i na orbicie. „Miejsce” wpływa też na rysunek powierzchni (ta sama nazwa = ta sama planeta). '
         + 'Animacje skoku i wyjścia grają na tabletach, które są włączone w chwili zmiany; tablet włączony później od razu pokazuje stan końcowy.'),
       btn('Ustaw dla zaznaczonych', () => ustaw(), '.glowny')),
+    h('div.karta',
+      h('h2', 'Pozycja (karta postaci)'),
+      h('p.slaby', 'Gdzie dokładnie są zaznaczone postacie. Budynek (np. biuro przy kopalni, hangar) pokazuje graczowi kartę budynku z jego wymiarami. Współrzędne to na razie tekst; mapa doda później liczby.'),
+      h('div.siatka', pole('Planeta', poz.planeta), pole('Współrzędne', poz.wspolrzedne), pole('Miejsce', poz.miejsce), pole('Budynek', poz.budynek)),
+      btn('Ustaw pozycję dla zaznaczonych', ustawPozycje, '.glowny')),
+  );
+}
+
+// ---------- karty postaci ----------
+
+// Format edytora: jedna linia = „nazwa = wartość”.
+const naLinie = (obj, fmt = (v) => v) => Object.entries(obj || {}).map(([k, v]) => `${k} = ${fmt(v)}`).join('\n');
+const zLinii = (tekst, fmt = (v) => v) => Object.fromEntries(tekst.split('\n').map((l) => l.split('=')).filter((p) => p.length > 1 && p[0].trim()).map(([k, ...v]) => [k.trim(), fmt(v.join('=').trim())]));
+const listaNaLinie = (l) => (l || []).map((x) => (x.opis ? `${x.nazwa} = ${x.opis}` : x.nazwa)).join('\n');
+
+async function kartyPostaci(wybrany = null) {
+  const { postacie } = await api('mg_karty');
+  if (!postacie.length) return glowna.append(h('div.karta', h('p.slaby', 'Brak postaci graczy.')));
+  const p = postacie.find((x) => x.uid === wybrany) || postacie[0];
+  const k = p.karta;
+  const wybor = h('select', postacie.map((x) => h('option', { value: x.uid, selected: x.uid === p.uid }, x.postac)));
+  wybor.addEventListener('change', () => { wyczysc(glowna); kartyPostaci(wybor.value); });
+  const pole2 = (wartosc, wys = 120, ph = '') => h('textarea', { style: `min-height:${wys}px`, placeholder: ph }, wartosc);
+  const f = {
+    atrybuty: pole2(naLinie(k.statystyki.atrybuty), 140, 'Siła = 3\nZręczność = 2\nIntelekt = 4'),
+    umiejetnosci: pole2(naLinie(k.statystyki.umiejetnosci), 140, 'Pilotaż = 2\nBlaster = 1\nNegocjacje = 3'),
+    liczniki: pole2(naLinie(k.statystyki.liczniki, (v) => `${v[0]}/${v[1]}`), 80, 'Rany = 3/12\nStres = 2/10'),
+    reputacja: pole2(naLinie(k.reputacja), 100, 'Imperium = -40\nHuttowie = 25\nGildia Przemytników = 60'),
+    dokumenty: pole2(listaNaLinie(k.dokumenty), 90, 'Licencja pilota kl. B = ważna do GST17\nTożsamość: Mara Senn = fałszywa, dobra jakość'),
+    kontakty: pole2(listaNaLinie(k.kontakty), 90, 'Dex Molo = mechanik w dokach Mos Eisley, winien przysługę'),
+    ekwipunek: pole2(listaNaLinie(k.ekwipunek), 90, 'Blaster DL-44 = zmodyfikowany\nKomlink szyfrowany'),
+    stan: h('select', Object.entries({ czysty: 'czysty', notowany: 'notowany', poszukiwany: 'POSZUKIWANY (list gończy)' }).map(([a, b]) => h('option', { value: a, selected: k.status.stan === a }, b))),
+    zlecajacy: h('input', { value: k.status.zlecajacy || '', placeholder: 'np. Imperium, Jabba' }),
+    nagroda: h('input', { type: 'number', min: 0, value: k.status.nagroda || 0 }),
+    opis: h('input', { value: k.status.opis || '', placeholder: 'np. żywy, za kradzież frachtowca' }),
+  };
+  const info = h('div');
+  const zapisz = async () => {
+    try {
+      await api('mg_karta_zapisz', {
+        uid: p.uid,
+        statystyki: {
+          atrybuty: zLinii(f.atrybuty.value, Number),
+          umiejetnosci: zLinii(f.umiejetnosci.value, Number),
+          liczniki: zLinii(f.liczniki.value, (v) => v.split('/').map(Number)),
+        },
+        reputacja: zLinii(f.reputacja.value, Number),
+        status: { stan: f.stan.value, zlecajacy: f.zlecajacy.value, nagroda: Number(f.nagroda.value), opis: f.opis.value },
+        dokumenty: f.dokumenty.value, kontakty: f.kontakty.value, ekwipunek: f.ekwipunek.value,
+      });
+      wyczysc(glowna); await kartyPostaci(p.uid);
+      glowna.prepend(msg(`Zapisano kartę: ${p.postac}.`, 'ok'));
+    } catch (e) {
+      wyczysc(info).append(msg(e.message));
+    }
+  };
+  glowna.append(
+    h('div.karta',
+      h('div.rzad', h('h2', { style: 'flex:1;margin:0' }, 'Karta postaci'), wybor),
+      h('p.slaby', 'Każde pole: jedna linia = „nazwa = wartość”. Statystyki są otwarte — wpisz cechy i umiejętności waszego systemu. '
+        + 'Gracz widzi wszystko na swojej karcie (poza notatnikiem, który pisze sam). Pozycję ustawiasz w zakładce Stan postaci.'),
+      info,
+      h('div.siatka', pole('Cechy (liczby)', f.atrybuty), pole('Umiejętności (liczby)', f.umiejetnosci), pole('Liczniki (obecne/max)', f.liczniki)),
+      h('div.siatka', pole('Reputacja (−100…100)', f.reputacja), pole('Dokumenty i licencje', f.dokumenty), pole('Kontakty', f.kontakty), pole('Ekwipunek', f.ekwipunek)),
+      h('h2', { style: 'margin-top:12px' }, 'Status w rejestrach'),
+      h('div.siatka', pole('Status', f.stan), pole('Zlecający', f.zlecajacy), pole('Nagroda (kr)', f.nagroda), pole('Uwagi', f.opis)),
+      btn('Zapisz kartę', zapisz, '.glowny')),
+    k.notatki ? h('div.karta', h('h2', 'Notatnik gracza (podgląd)'), h('div', { style: 'white-space:pre-wrap' }, k.notatki)) : null,
   );
 }
 
@@ -464,7 +555,7 @@ const WZOR_KOMORKI = {
     { imie: 'Sela', funkcja: 'strzelec' },
   ],
   magazyn: [{ planeta: 'Zephyria', towar: 'Ogniwa paliwowe', ilosc: 10 }],
-  budynki: [{ nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', pojemnosc: 40, pracownicy: 12, pensja: 15, menedzer: 'Orrin Vale', opis: 'Wydobycie rudy w starych sztolniach.' }],
+  budynki: [{ nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', wspolrzedne: 'Z-04 · 12.7 / 88.1', powierzchnia: 2400, pietra: 2, szyby: 6, pojemnosc: 40, pracownicy: 12, pensja: 15, menedzer: 'Orrin Vale', opis: 'Wydobycie rudy w starych sztolniach.' }],
 };
 
 const WZOR_TRANSPORTU = {
@@ -598,6 +689,7 @@ async function firmy() {
       czlonkowie,
       btn('+ Członek', () => dodajCzlonka()), h('br'), h('br'),
       h('label', 'Flota, załoga, magazyn, budynki — JSON. Planety, towary, statki, budynki i osoby wpisuj po nazwie. '
+        + 'Budynek: nazwa, typ, planeta, wspolrzedne, powierzchnia (m²), pietra (nad ziemią), szyby (poziomy pod ziemią), pojemnosc, pracownicy, pensja, menedzer, opis. '
         + 'Stany statku: sprawny, uszkodzony, w naprawie. Stan osoby: zdrowy, ranny, spalony, zatrzymany. '
         + 'Agencja: „kryptonim” kontrahenta i „gracz” (login), jeśli to postać gracza — wtedy wypłaty idą na jego rachunek. '
         + 'Ukryte „statystyki” osób (1–10): ' + Object.entries(STATYSTYKI).map(([k, n]) => `${k} (${n})`).join(', ') + '. Gracze ich nie widzą — poznają je w przybliżeniu testem.', dane),

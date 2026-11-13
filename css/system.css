@@ -390,7 +390,7 @@ table.tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
 
 /* ---------- frakcja ---------- */
 
-.karty { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.karty { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 .drzewo { list-style: none; padding-left: 22px; margin: 0; border-left: 1px dashed var(--linia); }
 .drzewo.korzen { padding-left: 0; border: 0; }
 .drzewo li { padding: 6px 0; }
@@ -441,3 +441,31 @@ html.z-tlem #pasek, html.z-tlem #dok { background: rgba(3, 6, 10, 0.45); }
 html.z-tlem .pulpit-glowa, html.z-tlem .blokada-zegar, html.z-tlem .blokada-data, html.z-tlem .start { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9); }
 html.z-tlem .ikona-aplikacji { background: rgba(8, 18, 22, 0.62); backdrop-filter: blur(3px); }
 .pulpit-miejsce { margin-top: 6px; font-size: 13px; letter-spacing: 0.12em; color: var(--akcent-2); min-height: 1em; }
+
+/* ---------- karta postaci ---------- */
+
+.karta-id { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+.karta-portret {
+  width: 120px; height: 150px; flex: none; position: relative; overflow: hidden;
+  border: 1px solid var(--linia-mocna); border-radius: 6px;
+  background: repeating-linear-gradient(0deg, rgba(77, 226, 201, 0.08) 0 2px, transparent 2px 4px), rgba(0, 0, 0, 0.4);
+}
+.karta-glowa, .karta-tulow { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(77, 226, 201, 0.35); box-shadow: 0 0 18px rgba(77, 226, 201, 0.35); }
+.karta-glowa { top: 24px; width: 46px; height: 54px; border-radius: 50% 50% 45% 45%; }
+.karta-tulow { bottom: -20px; width: 96px; height: 70px; border-radius: 48px 48px 0 0; }
+.karta-imie { font-size: 24px; color: var(--akcent); letter-spacing: 0.08em; }
+.list-gonczy { border-color: var(--zly); background: rgba(255, 94, 87, 0.07); }
+.piki { display: inline-flex; gap: 3px; vertical-align: middle; }
+.piki i { width: 10px; height: 10px; border: 1px solid var(--linia-mocna); transform: rotate(45deg); }
+.piki i.pelny { background: var(--akcent); border-color: var(--akcent); }
+.pasek-licznika { height: 8px; border: 1px solid var(--linia); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.pasek-licznika i { display: block; height: 100%; background: var(--akcent-2); }
+.reputacja { position: relative; height: 8px; border: 1px solid var(--linia); border-radius: 4px; margin-top: 6px; }
+.reputacja::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--tekst-slaby); }
+.reputacja i { position: absolute; top: 0; bottom: 0; }
+.reputacja i.plus { background: var(--ok); }
+.reputacja i.minus { background: var(--zly); }
+.przekroj { margin-top: 12px; display: grid; gap: 2px; max-width: 240px; }
+.kondygnacja { height: 16px; font-size: 10px; line-height: 16px; padding-left: 6px; border: 1px solid var(--linia); background: rgba(77, 226, 201, 0.08); color: var(--tekst-slaby); }
+.kondygnacja.pod { background: rgba(242, 184, 75, 0.08); margin: 0 30px; }
+.grunt { height: 3px; background: var(--akcent-2); margin: 3px -10px; }

@@ -40,6 +40,7 @@ api/agencja.php          profil agencji (ISB): wypłaty dla agentów, teczki i m
 api/handel.php           ceny na planetach, kursy handlowe, automaty
 api/kanaly.php           czarny rynek informacji: wtyczki, kanały szyfrowane, słowniki
 api/sceny.php            stan faktyczny postaci (scena w tle datapada)
+api/karty.php            karta postaci: statystyki, reputacja, status, pozycja, notatnik
 js/rdzen/scena.js        animacje tła: gwiazdy, skok, tunel, wyjście, planety
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
@@ -53,6 +54,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
+| Karta postaci | tożsamość, status w rejestrach, dokumenty, pozycja (planeta, współrzędne, miejsce, budynek), statystyki, reputacja, kontakty, ekwipunek, notatnik | nowe |
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
@@ -225,6 +227,29 @@ postaci albo dla wielu naraz (np. cała drużyna na jednym statku). Tablety pyta
 - Wszystko rysowane kodem na `<canvas>`, bez obrazków. W otwartych aplikacjach i przy
   wygaszonym ekranie animacja stoi, żeby nie drenować baterii. Ustawienie systemowe
   „ogranicz ruch” spowalnia animacje.
+
+## Karta postaci
+
+Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika ustawia MG.
+
+- **Tożsamość:** imię, numer ID (wyliczany z konta), przynależność, oddział, ranga, poziom
+  uprawnień, środki na koncie, firmy postaci. **Status w rejestrach:** czysty, notowany albo
+  **poszukiwany** (list gończy: zlecający, nagroda, uwagi). **Dokumenty i licencje**, także
+  fałszywe tożsamości.
+- **Pozycja:** planeta (z katalogu), współrzędne (tekst — mapa doda później liczby), miejsce
+  (np. „pokój 14, hotel Pod Bantą”) i opcjonalnie **budynek** dowolnej firmy (np. biuro przy
+  kopalni, hangar). Wtedy karta pokazuje dane budynku i schemat kondygnacji. MG ustawia
+  pozycję w zakładce **Stan postaci**, dla wielu postaci naraz, tak jak scenę.
+- **Statystyki:** otwarta struktura na system gry. MG wpisuje własne **cechy** i **umiejętności**
+  (liczby, wyświetlane jako romby) oraz **liczniki** (np. Rany 3/12, Stres 2/10, jako paski).
+  Bez wpisów karta mówi „Brak danych biometrycznych”.
+- **Reputacja** u organizacji (−100…100): paski od „wrogi” do „sprzymierzony”.
+- **Kontakty** i **ekwipunek:** listy „nazwa = opis”.
+- **Notatnik:** prywatny, pisze go gracz i zapisuje się sam. MG ma podgląd.
+- Panel MG → **Karty postaci:** edycja w prostym formacie — jedna linia = „nazwa = wartość”.
+
+**Budynki** (w firmach i na rynku nieruchomości) mają teraz: `wspolrzedne`, `powierzchnia` (m²),
+`pietra` (kondygnacje nad ziemią) i `szyby` (poziomy pod ziemią: szyby kopalni, piwnice, bunkry).
 
 ## Konta i bezpieczeństwo
 

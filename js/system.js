@@ -12,8 +12,9 @@ import frakcja from './aplikacje/frakcja.js';
 import ustawienia from './aplikacje/ustawienia.js';
 import bank from './aplikacje/bank.js';
 import firma from './aplikacje/firma.js';
+import karta from './aplikacje/karta.js';
 
-const APLIKACJE = [holonet, bank, firma, dekoder, harmonogram, frakcja, ustawienia];
+const APLIKACJE = [karta, holonet, bank, firma, dekoder, harmonogram, frakcja, ustawienia];
 
 const html = document.documentElement;
 const pulpit = document.getElementById('pulpit');

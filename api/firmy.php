@@ -99,6 +99,16 @@ function katalog_id(array $lista, string $wartosc, string $co): string
     blad("Nieznana $co: „{$wartosc}”. Dodaj ją najpierw w katalogu.");
 }
 
+// Wymiary budynku: współrzędne (tekst), powierzchnia w m², piętra nad ziemią,
+// poziomy pod ziemią (szyby kopalni, piwnice, bunkry).
+function budynek_wymiary(array &$b): void
+{
+    $b['wspolrzedne'] = mb_substr(trim((string) ($b['wspolrzedne'] ?? '')), 0, 80);
+    $b['powierzchnia'] = max(0, (int) ($b['powierzchnia'] ?? 0));
+    $b['pietra'] = max(0, min(500, (int) ($b['pietra'] ?? 0)));
+    $b['szyby'] = max(0, min(500, (int) ($b['szyby'] ?? 0)));
+}
+
 function firmy_puste(): array
 {
     return ['firmy' => []];
@@ -277,6 +287,8 @@ function transport_operacja(array &$firma, string $op, array $w, array $u, bool 
                     if ($wynik !== 'ok') blad('Na rachunku firmy brakuje środków (cena: ' . $o['cena'] . ' kr).');
                     array_splice($kat['oferty'], $i, 1);
                     return ['id' => id(), 'nazwa' => $o['nazwa'], 'typ' => $o['typ'] ?? '', 'planeta' => $o['planeta'] ?? '',
+                        'wspolrzedne' => $o['wspolrzedne'] ?? '', 'powierzchnia' => (int) ($o['powierzchnia'] ?? 0),
+                        'pietra' => (int) ($o['pietra'] ?? 0), 'szyby' => (int) ($o['szyby'] ?? 0),
                         'pojemnosc' => (int) ($o['pojemnosc'] ?? 0), 'pracownicy' => 0, 'pensja' => (int) ($o['pensja'] ?? 0),
                         'menedzer' => '', 'opis' => $o['opis'] ?? ''];
                 }
@@ -528,6 +540,7 @@ function obsluz_firmy(string $akcja, bool $post): void
                 $o['pojemnosc'] = max(0, (int) ($o['pojemnosc'] ?? 0));
                 $o['pensja'] = max(0, (int) ($o['pensja'] ?? 0));
                 $o['planeta'] = ($o['planeta'] ?? '') === '' ? '' : katalog_id($planety, (string) $o['planeta'], 'planeta');
+                budynek_wymiary($o);
             }
             unset($o);
             zmien('katalog', function (&$k) use ($towary, $planety, $oferty) {
@@ -638,6 +651,7 @@ function obsluz_firmy(string $akcja, bool $post): void
                         $b['pracownicy'] = max(0, min($b['pojemnosc'], (int) ($b['pracownicy'] ?? 0)));
                         $b['pensja'] = max(0, (int) ($b['pensja'] ?? 0));
                         $b['menedzer'] = ($b['menedzer'] ?? '') === '' ? '' : katalog_id($osoby, (string) $b['menedzer'], 'osoba w załodze');
+                        budynek_wymiary($b);
                     }
                     unset($b);
                     foreach ($dane['zaloga'] as &$z) {

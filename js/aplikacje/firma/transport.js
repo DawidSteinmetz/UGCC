@@ -244,6 +244,15 @@ export default {
 
     // ---------- budynki i rynek nieruchomości ----------
 
+    // „2400 m² · 2 piętra · 6 poziomów pod ziemią”
+    function wymiary(b) {
+      return [
+        b.powierzchnia ? `${Number(b.powierzchnia).toLocaleString('pl-PL')} m²` : '',
+        b.pietra ? `${b.pietra} ${b.pietra === 1 ? 'kondygnacja' : 'kondygnacje'}` : '',
+        b.szyby ? `${b.szyby} ${b.szyby === 1 ? 'poziom' : 'poziomów'} pod ziemią` : '',
+      ].filter(Boolean).join(' · ');
+    }
+
     function budynki() {
       const lista = dane.budynki || [];
       const karty = lista.map((b) => {
@@ -254,6 +263,8 @@ export default {
           h('h2', { style: 'margin:0' }, b.nazwa),
           h('div.slaby.maly-tekst', { style: 'margin:4px 0 10px' }, [b.typ, b.planeta ? nazwaPlanety(b.planeta) : ''].filter(Boolean).join(' · ')),
           h('table.tabela',
+            b.wspolrzedne ? wiersz('Współrzędne', b.wspolrzedne) : null,
+            b.powierzchnia || b.pietra || b.szyby ? wiersz('Wymiary', wymiary(b)) : null,
             wiersz('Kierownik', kier ? kier.imie : h('span.status-nieobecny', 'brak')),
             wiersz('Pracownicy', f.moze
               ? h('span.licznik',
@@ -272,7 +283,7 @@ export default {
           h('h2', 'Rynek nieruchomości'),
           h('div.slaby.maly-tekst', { style: 'margin-bottom:8px' }, `Środki na rachunku: ${saldo} kr`),
           h('ul.lista', oferty.map((o) => h('li', h('div.rzad',
-            h('div.rozpycha', h('div', o.nazwa), h('div.slaby.maly-tekst', [o.typ, o.planeta ? nazwaPlanety(o.planeta) : '', o.pojemnosc ? `do ${o.pojemnosc} pracowników` : '', o.opis].filter(Boolean).join(' · '))),
+            h('div.rozpycha', h('div', o.nazwa), h('div.slaby.maly-tekst', [o.typ, o.planeta ? nazwaPlanety(o.planeta) : '', wymiary(o), o.pojemnosc ? `do ${o.pojemnosc} pracowników` : '', o.opis].filter(Boolean).join(' · '))),
             h('span', `${o.cena} kr`),
             f.moze ? h('button.przycisk.maly', {
               disabled: saldo < o.cena,
