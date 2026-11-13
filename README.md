@@ -43,6 +43,7 @@ api/sceny.php            stan faktyczny postaci (scena w tle datapada)
 api/karty.php            karta postaci: statystyki, reputacja, status, pozycja, notatnik
 api/ruch.php             przemieszczanie, przygotowanie statku, gotówka (bankomat, sklep)
 js/rdzen/scena.js        animacje tła: gwiazdy, skok, tunel, wyjście, planety
+assets/mapa/             dane mapy galaktyki: planety.json, szlaki.json (pliki systemu)
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -56,6 +57,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
 | Nawigacja | gdzie jestem, dokąd i czym (pieszo, taksówka, pojazdy), przygotowanie statku do lotu, start, współrzędne skoku, lądowanie, bankomat, sklep | nowe |
+| Mapa galaktyki | 2578 planet, regiony i szlaki nadprzestrzenne, wyszukiwarka, „Jesteś tutaj”, cel skoku, statki firm postaci | dawna osobna strona `Mapa/` |
 | Karta postaci | tożsamość, status w rejestrach, dokumenty, pozycja (planeta, współrzędne, miejsce, budynek), statystyki, reputacja, kontakty, ekwipunek, notatnik | nowe |
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
@@ -283,6 +285,23 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
   ekwipunku.
 - **Szybkie akcje na pulpicie:** podróż w toku z odliczaniem, „Przygotuj [statek] do lotu”
   i stan obsługi, „Wejdź na pokład”, najbliższy bankomat (do 5 km), taksówka.
+
+## Mapa galaktyki
+
+- Aplikacja `js/aplikacje/mapa.js`, rysowana na `<canvas>`: planety, podpisy regionów, szlaki
+  nadprzestrzenne (główne widać zawsze, lokalne po przybliżeniu) i siatka. Przesuwanie palcem,
+  szczypanie albo kółko myszy, wyszukiwarka planet i szlaków, karta planety (region,
+  współrzędne, grawitacja, słońca i księżyce, doba i rok, średnica, odległość od postaci).
+- Dane leżą w `assets/mapa/planety.json` (`[nazwa, region, x, y, grawitacja, słońca, księżyce,
+  doba, rok, średnica]`, region to numer z listy `REGIONY` w `mapa.js`) i `assets/mapa/szlaki.json`
+  (`n` nazwa, `z` ważność 1–5, `dl` długość, `p` ścieżki jako płaskie listy `x,y,x,y…`).
+  Są w pamięci tabletu, więc mapa działa bez zasięgu.
+- Pozycję podaje `api/?a=mapa` (`api/ruch.php`): planeta postaci, stan (powierzchnia, orbita,
+  nadprzestrzeń), cel skoku i statki jej firm. **Planety z katalogu MG łączą się z mapą po nazwie**
+  (bez wielkości liter, ogonków i spacji), więc planeta w katalogu powinna nazywać się tak jak
+  na mapie, np. „Kessel”, „Nar Shaddaa”. Planeta spoza mapy po prostu nie dostaje znacznika.
+- Mapa nie zmienia zasad skoku: Nawigacja dalej porównuje współrzędne z polem `wspolrzedne`
+  w katalogu.
 
 ## Widok z planety, start i skok
 

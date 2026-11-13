@@ -323,7 +323,7 @@ function ruch_obsluga(array $statek, array $hangar): array
         'brak' => $brak, 'koszt' => $brak * $cena, 'jakosc' => $jakosc];
 }
 
-const AKCJE_RUCHU = ['nawigacja', 'trasa', 'podroz', 'bankomat', 'sklep_kup', 'statek_przygotuj', 'na_poklad', 'zejdz_z_pokladu', 'start', 'skok', 'ladowanie', 'lacznosc_wyslij'];
+const AKCJE_RUCHU = ['mapa', 'nawigacja','trasa', 'podroz', 'bankomat', 'sklep_kup', 'statek_przygotuj', 'na_poklad', 'zejdz_z_pokladu', 'start', 'skok', 'ladowanie', 'lacznosc_wyslij'];
 const CZAS_WZNOSZENIA_MS = 300000;
 
 function obsluz_ruch(string $akcja, bool $post): void
@@ -331,6 +331,27 @@ function obsluz_ruch(string $akcja, bool $post): void
     // Każda akcja najpierw domyka podróż, która w międzyczasie dobiegła końca.
     if (in_array($akcja, AKCJE_RUCHU, true) && ($ja = ja())) ruch_dokoncz($ja['id']);
     switch ($akcja) {
+
+        // Mapa galaktyki: gdzie jest postać, dokąd leci i gdzie stoją statki jej firm.
+        // Planety podajemy po nazwie, a datapad dopasowuje je do mapy (assets/mapa/planety.json).
+        case 'mapa':
+            $u = wymagaj_logowania();
+            $karta = karta($u['id']);
+            $nazwy = array_column(katalog()['planety'], 'nazwa', 'id');
+            $gdzie = ruch_gdzie($karta, ruch_lokacje());
+            $tu = (string) ($gdzie['planeta'] ?? $karta['pozycja']['planeta'] ?? '');
+            $wynik = ['tu' => $nazwy[$tu] ?? '', 'stan' => $tu !== '' ? 'powierzchnia' : '', 'cel' => '', 'statki' => []];
+            if ($st = ruch_statek($karta['pozycja']['lokacja'] ?? '')) {
+                if (!empty($st['w_locie'])) $wynik['stan'] = ($st['cel'] ?? '') !== '' ? 'nadprzestrzen' : 'orbita';
+                $wynik['cel'] = $nazwy[$st['cel'] ?? ''] ?? '';
+            }
+            foreach (ruch_moje_firmy($u['id']) as $f) {
+                foreach ($f['dane']['flota'] ?? [] as $s) {
+                    $wynik['statki'][] = ['nazwa' => $s['nazwa'] ?? '?', 'firma' => $f['nazwa'], 'planeta' => $nazwy[$s['lokalizacja'] ?? ''] ?? '',
+                        'cel' => $nazwy[$s['cel'] ?? ''] ?? '', 'w_locie' => !empty($s['w_locie'])];
+                }
+            }
+            odpowiedz($wynik);
 
         case 'nawigacja':
             $u = wymagaj_logowania();
