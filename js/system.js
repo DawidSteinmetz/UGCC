@@ -15,8 +15,9 @@ import firma from './aplikacje/firma.js';
 import karta from './aplikacje/karta.js';
 import nawigacja, { odliczanie } from './aplikacje/nawigacja.js';
 import mapa from './aplikacje/mapa.js';
+import gielda from './aplikacje/gielda.js';
 
-const APLIKACJE = [karta, nawigacja, mapa, holonet, bank, firma, dekoder, harmonogram, frakcja, ustawienia];
+const APLIKACJE = [karta, nawigacja, mapa, holonet, bank, gielda, firma, dekoder, harmonogram, frakcja, ustawienia];
 
 const html = document.documentElement;
 const pulpit = document.getElementById('pulpit');

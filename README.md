@@ -40,6 +40,9 @@ api/agencja.php          profil agencji (ISB): wypłaty dla agentów, teczki i m
 api/handel.php           ceny na planetach, kursy handlowe, automaty
 api/kanaly.php           czarny rynek informacji: wtyczki, kanały szyfrowane, słowniki
 api/sceny.php            stan faktyczny postaci (scena w tle datapada)
+api/gielda.php           giełda CDEX: instrumenty, skrypt kursów, portfele, zlecenia
+api/wydarzenia.php       wydarzenia świata: skutki dla cen, Holonetu i kanałów szyfrowanych
+gm/wydarzenia.js         komponent wydarzeń osadzany w kilku zakładkach panelu MG
 api/karty.php            karta postaci: statystyki, reputacja, status, pozycja, notatnik
 api/ruch.php             przemieszczanie, przygotowanie statku, gotówka (bankomat, sklep)
 js/rdzen/scena.js        animacje tła: gwiazdy, skok, tunel, wyjście, planety
@@ -61,6 +64,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Karta postaci | tożsamość, status w rejestrach, dokumenty, pozycja (planeta, współrzędne, miejsce, budynek), statystyki, reputacja, kontakty, ekwipunek, notatnik | nowe |
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
+| Giełda | notowania spółek i towarów, wykresy, kupno i sprzedaż przez Bank, portfel | dawne CDEX |
 | Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
 | Harmonogram | kalendarz miesięczny, deklaracje obecności postaci (jedna na dzień) | `/calendar/` |
@@ -191,6 +195,46 @@ wybiera MG (np. „Biuro Analiz Rynkowych Sektora”). Zakładki:
   Zaległe obiegi liczą się przy wejściu do firm (bez crona), najwyżej 12 naraz.
 - Zwykły (nieautomatyczny) kurs z kupnem i sprzedażą rozlicza się, gdy MG kliknie
   „Zakończ i rozlicz”.
+
+## Giełda CDEX
+
+- Aplikacja **Giełda** (`js/aplikacje/gielda.js`, `api/gielda.php`): spółki i towary notowane na
+  giełdach planetarnych (Coruscant, Corellia, Kuat, Bespin, Nar Shaddaa). Lista z filtrami
+  (giełda, spółki/towary, kategoria, szukanie), wykres 30 dni – 2 lata, kupno i sprzedaż
+  z potwierdzeniem, portfel z wynikiem i historia transakcji.
+- **Rozliczenie w Banku:** zlecenie obciąża albo uznaje rachunek postaci („CDEX — rozliczenia
+  giełdowe”), z prowizją (domyślnie 0,5%, min. 1 kr). Nie da się kupić za więcej, niż jest
+  na koncie, ani sprzedać więcej, niż jest w portfelu.
+- **Dane** (JSON w `api/dane`): `gielda` (giełdy, instrumenty, ustawienia), `gielda_notowania`
+  (kurs zamknięcia na każdy dzień, do 2 lat), `gielda_portfele`. Domyślny zestaw jest
+  w `gielda_domyslna()`. Kategorie towarów są te same co w katalogu firm: paliwo, surowce,
+  żywność, medycyna, technika, broń, luksus, przyprawy.
+- **Skrypt kursów:** każdy dzień liczony z poprzedniego: powrót do „wartości godziwej” (cena
+  bazowa × mnożniki wydarzeń) plus losowe wahanie. Losowość wynika z symbolu i daty, więc
+  wynik jest powtarzalny. Brakujące dni dopisują się same przy wejściu na giełdę (bez crona).
+  Nowy instrument dostaje od razu historię wstecz.
+- **Panel MG → Giełda:** podgląd kursu z prognozą (z wydarzeniami i bez, także dla szkicu
+  wydarzenia z formularza), kursy dnia, portfele graczy, edytor giełd i instrumentów (JSON),
+  ustawienia skryptu, „Przelicz całą historię”.
+
+## Wydarzenia
+
+Osobny moduł (`api/wydarzenia.php`, komponent `gm/wydarzenia.js`), którym MG porusza kilkoma
+systemami naraz. Wydarzenie ma termin (od, opcjonalnie do), włącznik i listę skutków:
+
+| Skutek | Co robi |
+|---|---|
+| Ceny | mnożnik cen na giełdzie **i w handlu firm** (`handel.php`). Zakres: planeta, rodzaj (towary/spółki), kategoria, konkretny instrument lub towar; zmiana w %, narastanie w dniach, mnożnik wahań. Po końcu wydarzenia ceny same wracają. |
+| Holonet | komunikat w Holonecie, na start albo dzień po zakończeniu |
+| Kanał szyfrowany | wiadomość w kanale czarnego rynku (szyfr słowny, odszyfrowują ją pliki ze słownikiem) |
+
+- Bez wydarzeń są zwykłe wahania. Komunikaty wysyłają się same przy pierwszym żądaniu po
+  terminie i tylko raz. Zapis wydarzenia przelicza dzisiejszy kurs, więc działa od razu.
+- **Szablony:** blokada planetarna, odkrycie złóż, kryzys paliwowy, embargo, panika na rynkach,
+  epidemia, hossa w stoczniach. Szablon wypełnia skutki i teksty, a MG je poprawia.
+- Komponent jest jeden, a osadzają go zakładki: Wydarzenia (wszystko), Giełda (z podglądem
+  kursu), Holonet i Kanały (tylko wydarzenia z ich komunikatami). Nowy rodzaj skutku to wpis
+  w `RODZAJE` (`gm/wydarzenia.js`) i w `api/wydarzenia.php`.
 
 ## Czarny rynek informacji
 

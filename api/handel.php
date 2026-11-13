@@ -5,6 +5,7 @@
 // konkretnych towarów albo całych kategorii (np. Kessel: surowce ×0,6 — tanio, bo się
 // je tam wydobywa; żywność ×1,5 — drogo, bo trzeba ją przywozić). Do tego codzienne
 // wahanie kursu (±8%, takie samo dla wszystkich tego dnia) i różnica kupno/sprzedaż (±5%).
+// Aktywne wydarzenia (wydarzenia.php) mnożą cenę i mogą zwiększyć wahania.
 // Wszystkie ceny w pełnych kredytach. Z tych samych funkcji skorzysta giełda.
 //
 // KAPITAN. Ukryta cecha „handel” kapitana statku zmienia ceny: przy 10 kupuje o 10% taniej
@@ -34,7 +35,9 @@ function handel_mnoznik(array $planeta, array $towar): float
 function handel_cena(array $towar, array $planeta, string $dzien): array
 {
     $los = (crc32($towar['id'] . '|' . $planeta['id'] . '|' . $dzien) % 1601 - 800) / 800 * HANDEL_WAHANIA;
-    $srodek = max(1, (int) ($towar['cena'] ?? 1)) * handel_mnoznik($planeta, $towar) * (1 + $los);
+    // Wydarzenia (blokady, kryzysy, odkrycia złóż) przesuwają ceny tak samo jak na giełdzie.
+    $wyd = wydarzenia_wplyw(['planety' => [$planeta['nazwa'] ?? ''], 'rodzaj' => 'towar', 'kategoria' => $towar['kategoria'] ?? '', 'cele' => [$towar['nazwa'] ?? '']], $dzien);
+    $srodek = max(1, (int) ($towar['cena'] ?? 1)) * handel_mnoznik($planeta, $towar) * $wyd['mnoznik'] * (1 + $los * $wyd['niepewnosc']);
     return [
         'kupno' => max(1, (int) round($srodek * (1 + HANDEL_SPREAD))),
         'sprzedaz' => max(1, (int) round($srodek * (1 - HANDEL_SPREAD))),

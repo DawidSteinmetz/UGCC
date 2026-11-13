@@ -20,6 +20,8 @@ require __DIR__ . '/kanaly.php';
 require __DIR__ . '/sceny.php';
 require __DIR__ . '/karty.php';
 require __DIR__ . '/ruch.php';
+require __DIR__ . '/wydarzenia.php';
+require __DIR__ . '/gielda.php';
 
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict', 'secure' => !empty($_SERVER['HTTPS'])]);
 session_name('dp_sesja');
@@ -157,6 +159,7 @@ if ($post && ($_SERVER['HTTP_X_DATAPAD'] ?? '') !== '1') {
     blad('Odrzucono żądanie.', 403);
 }
 
+obsluz_wydarzenia($akcja, $post);
 obsluz_bank($akcja, $post);
 obsluz_firmy($akcja, $post);
 obsluz_komorka($akcja, $post);
@@ -165,6 +168,7 @@ obsluz_kanaly($akcja, $post);
 obsluz_sceny($akcja, $post);
 obsluz_karty($akcja, $post);
 obsluz_ruch($akcja, $post);
+obsluz_gielda($akcja, $post);
 
 switch ($akcja) {
 

@@ -535,3 +535,45 @@ html.z-tlem #ekran::before {
 .mapa-wsp { position: absolute; left: 12px; bottom: 10px; font-size: 11px; color: var(--tekst-slaby); pointer-events: none; }
 .mapa-ladowanie { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--tlo); color: var(--akcent); letter-spacing: 0.12em; text-align: center; }
 @media (max-width: 760px) { .mapa-przyciski { margin-left: 0; } }
+
+/* ---------- Giełda CDEX ---------- */
+
+.zmiana { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--tekst-slaby); }
+.zmiana.plus { color: var(--ok); }
+.zmiana.minus { color: var(--zly); }
+.gielda-filtry { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.gielda-filtry select, .gielda-filtry input {
+  min-height: 40px; padding: 0 10px; border: 1px solid var(--linia-mocna); border-radius: var(--promien); background: var(--panel-mocny); flex: 1 1 160px;
+}
+.gielda-lista { display: grid; gap: 6px; }
+.gielda-wiersz {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) 90px 120px 76px; gap: 12px; align-items: center; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--linia); border-radius: var(--promien); background: var(--panel); cursor: pointer;
+}
+.gielda-wiersz:active, .gielda-wiersz:hover { border-color: var(--akcent); }
+.gielda-symbol { font-weight: bold; color: var(--akcent); letter-spacing: 0.06em; }
+.gielda-nazwa { display: grid; min-width: 0; }
+.gielda-nazwa b { font-weight: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gielda-kurs { display: grid; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gielda-kurs b { font-weight: normal; }
+.gielda-wiersz .zmiana { text-align: right; }
+.gielda-duzy-kurs { font-size: 24px; color: var(--akcent-2); font-variant-numeric: tabular-nums; }
+.gielda-wykres { margin: 8px 0; }
+.gielda-statystyki { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.gielda-statystyki div { display: grid; gap: 2px; }
+.wykres { width: 100%; display: block; }
+.wykres-maly { width: 90px; height: 28px; display: block; }
+.wykres-linia { fill: none; stroke-width: 1.6; stroke: var(--tekst-slaby); }
+.wykres-linia.plus { stroke: var(--ok); }
+.wykres-linia.minus { stroke: var(--zly); }
+.wykres-pole { stroke: none; opacity: 0.12; }
+.wykres-pole.plus { fill: var(--ok); }
+.wykres-pole.minus { fill: var(--zly); }
+.wykres-os { display: flex; justify-content: space-between; margin-top: 4px; }
+.przewijana { overflow-x: auto; }
+@media (max-width: 640px) {
+  .gielda-wiersz { grid-template-columns: 56px minmax(0, 1fr) auto; }
+  .gielda-wiersz .wykres-maly { display: none; }
+  .gielda-wiersz .zmiana { grid-column: 3; }
+  .gielda-kurs { grid-column: 3; grid-row: 1; }
+}

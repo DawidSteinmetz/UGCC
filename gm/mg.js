@@ -3,6 +3,7 @@
 
 import { h, wyczysc } from '../js/rdzen/narzedzia.js';
 import { api } from '../js/rdzen/api.js';
+import { panelWydarzen } from './wydarzenia.js';
 
 const FRAKCJE = ['Rebelia', 'Imperium', 'Syndykat'];
 const glowna = document.getElementById('glowna');
@@ -80,7 +81,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { stan: 'Stan postaci', karty: 'Karty postaci', konta: 'Konta', bank: 'Bank', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { stan: 'Stan postaci', karty: 'Karty postaci', konta: 'Konta', bank: 'Bank', gielda: 'Giełda', wydarzenia: 'Wydarzenia', firmy: 'Firmy', rekrutacja: 'Rekrutacja', katalog: 'Katalog', dokumenty: 'Dokumenty', kanaly: 'Kanały', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +91,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ stan: stanPostaci, karty: kartyPostaci, konta, bank, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ stan: stanPostaci, karty: kartyPostaci, konta, bank, gielda, wydarzenia, firmy, rekrutacja, katalog, dokumenty, kanaly, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -529,6 +530,8 @@ async function kanaly(edytowany = null) {
           h('td', btn('Usuń', bezpiecznie(async () => { await api('mg_wpis_usun', { kanal: k.id, id: x.id }); await odswiez('Usunięto wiadomość.'); }), '.zly'))))));
     }),
   );
+  // Wiadomości planowane: wydarzenia, które same nadadzą coś w kanałach.
+  await panelWydarzen(glowna, { tytul: 'Wiadomości z wydarzeń (nadają się same)', rodzaje: ['kanal'] });
 }
 
 // ---------- rekrutacja: pula kandydatów ----------
@@ -919,6 +922,125 @@ async function holonet(edytowany = null) {
             wyczysc(glowna); await holonet();
           }), '.zly')))))),
   );
+  await panelWydarzen(glowna, { tytul: 'Komunikaty z wydarzeń (publikują się same)', rodzaje: ['holonet'] });
+}
+
+// ---------- giełda i wydarzenia ----------
+
+// Wykres podglądu: historia (szara), prognoza z wydarzeniami (kolor akcentu), bez wydarzeń (przerywana).
+function wykresPodgladu(historia, prognoza, bez) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const W = 600, H = 200;
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.cssText = 'width:100%;height:220px;display:block';
+  const wszystko = [...historia, ...prognoza, ...bez];
+  const min = Math.min(...wszystko), max = Math.max(...wszystko), zakres = max - min || 1;
+  const n = historia.length + prognoza.length;
+  const x = (i) => (i / (n - 1)) * W;
+  const y = (c) => H - 10 - ((c - min) / zakres) * (H - 20);
+  const linia = (ceny, od, kolor, kreska = '') => {
+    const p = document.createElementNS(ns, 'polyline');
+    p.setAttribute('points', ceny.map((c, i) => `${x(od + i).toFixed(1)},${y(c).toFixed(1)}`).join(' '));
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', kolor);
+    p.setAttribute('stroke-width', '2');
+    if (kreska) p.setAttribute('stroke-dasharray', kreska);
+    svg.append(p);
+  };
+  const dzis = document.createElementNS(ns, 'line');
+  for (const [k, v] of Object.entries({ x1: x(historia.length - 1), x2: x(historia.length - 1), y1: 0, y2: H, stroke: 'currentColor', 'stroke-opacity': 0.25 })) dzis.setAttribute(k, v);
+  svg.append(dzis);
+  linia(historia, 0, 'var(--slaby)');
+  linia([historia[historia.length - 1], ...bez], historia.length - 1, 'var(--slaby)', '5 5');
+  linia([historia[historia.length - 1], ...prognoza], historia.length - 1, 'var(--akcent)');
+  return h('div', svg, h('div.rzad.slaby', h('span', `min ${min.toFixed(2)}`), h('span', { style: 'flex:1;text-align:center' }, '▏dziś'), h('span', `max ${max.toFixed(2)}`)));
+}
+
+async function gielda() {
+  const { gielda: g, kursy, portfele } = await api('mg_gielda');
+  const nazwyGield = Object.fromEntries(g.gieldy.map((x) => [x.id, x.nazwa]));
+  const gieldy = h('textarea', { style: 'min-height:150px' }, JSON.stringify(g.gieldy, null, 2));
+  const instrumenty = h('textarea', { style: 'min-height:320px' }, JSON.stringify(g.instrumenty, null, 2));
+  const ust = Object.fromEntries(Object.entries(g.ustawienia).map(([k, v]) => [k, h('input', { type: 'number', step: 'any', value: v })]));
+  const info = h('div');
+
+  // Podgląd: wybrany instrument, historia i prognoza po skrypcie z wydarzeniami.
+  const symbol = h('select', g.instrumenty.map((i) => h('option', { value: i.symbol }, `${i.symbol} — ${i.nazwa}`)));
+  const dni = h('input', { type: 'number', min: 7, max: 180, value: 60, style: 'max-width:110px' });
+  const podglad = h('div', h('p.slaby', 'Ładowanie…'));
+  let szkic = null, zegar = null;
+  const rysujPodglad = () => {
+    clearTimeout(zegar);
+    zegar = setTimeout(async () => {
+      try {
+        const p = await api('mg_gielda_podglad', { symbol: symbol.value, dni: Number(dni.value), szkic });
+        const ost = p.prognoza[p.prognoza.length - 1], bez = p.bez_wydarzen[p.bez_wydarzen.length - 1];
+        wyczysc(podglad).append(wykresPodgladu(p.historia, p.prognoza, p.bez_wydarzen),
+          h('p.slaby', `Dziś ${p.historia[p.historia.length - 1]} kr → za ${dni.value} dni ${ost} kr z wydarzeniami${szkic ? ' (ze szkicem z formularza)' : ''}, ${bez} kr bez wydarzeń. `
+            + 'Linia przerywana: zwykłe wahania. Losowość jest stała dla dnia i symbolu, więc prognoza się spełni, jeśli nie zmienisz wydarzeń.'));
+      } catch (e) {
+        wyczysc(podglad).append(msg(e.message));
+      }
+    }, 250);
+  };
+  symbol.addEventListener('change', rysujPodglad);
+  dni.addEventListener('input', rysujPodglad);
+
+  glowna.append(
+    h('div.karta', h('h2', 'Podgląd kursu'),
+      h('div.rzad', { style: 'margin-bottom:10px' }, h('div', { style: 'flex:1' }, symbol), dni, h('span.slaby', 'dni prognozy')),
+      podglad),
+    h('div.karta', h('h2', 'Kursy dnia'),
+      h('div.przewijana', h('table',
+        h('tr', h('th', 'Symbol'), h('th', 'Nazwa'), h('th', 'Kategoria'), h('th', 'Giełda'), h('th', 'Cena bazowa'), h('th', 'Kurs'), h('th', 'Od bazy')),
+        g.instrumenty.map((i) => {
+          const k = kursy[i.symbol] ?? i.cena;
+          const r = (k / i.cena - 1) * 100;
+          return h('tr', h('td', h('b', i.symbol)), h('td', i.nazwa, h('div.slaby', i.rodzaj === 'spolka' ? 'spółka' : `towar · ${i.jednostka}`)), h('td', i.kategoria),
+            h('td', nazwyGield[i.gielda] || i.gielda), h('td', i.cena), h('td', k), h('td', { style: `color:${r >= 0 ? 'var(--akcent)' : 'var(--zly)'}` }, `${r >= 0 ? '+' : ''}${r.toFixed(1)}%`));
+        })))),
+    h('div.karta', h('h2', 'Portfele graczy'),
+      portfele.length
+        ? h('table', portfele.map((p) => h('tr', h('td', h('b', p.postac)), h('td', Object.entries(p.pozycje).map(([s, x]) => `${s} × ${x.ilosc}`).join(', ')), h('td', `${p.wartosc.toLocaleString('pl-PL')} kr`))))
+        : h('p.slaby', 'Nikt jeszcze nic nie kupił.')),
+    h('div.karta', h('h2', 'Edytor giełdy'),
+      info,
+      h('p.slaby', 'Giełda: id (2–12 małych liter), nazwa, planeta. Instrument: symbol (2–6 znaków), nazwa, rodzaj (spolka albo towar), kategoria (towary: te same co w katalogu, np. paliwo, surowce, żywność, medycyna, technika, broń, luksus, przyprawy; '
+        + 'spółki: branża, np. stocznie, uzbrojenie, droidy), gielda (id), cena (bazowa — wokół niej błądzi kurs), jednostka, pochodzenie (planeta: wydarzenia na niej działają na ten instrument), '
+        + 'zmiennosc (opcjonalnie, dzienna, np. 0.03). Kursy liczą się co dzień same; nowy instrument dostaje historię od razu.'),
+      h('div.siatka', ...Object.entries({ powrot: 'Powrót do ceny bazowej (dziennie)', zmiennosc_spolka: 'Wahania spółek (dzienne)', zmiennosc_towar: 'Wahania towarów (dzienne)', prowizja: 'Prowizja (np. 0.005 = 0,5%)', historia_dni: 'Dni historii dla nowych' })
+        .map(([k, n]) => pole(n, ust[k]))),
+      pole('Giełdy', gieldy), h('br'),
+      pole('Instrumenty', instrumenty), h('br'),
+      h('div.rzad',
+        btn('Zapisz giełdę', bezpiecznie(async () => {
+          try {
+            await api('mg_gielda_zapisz', { gieldy: JSON.parse(gieldy.value), instrumenty: JSON.parse(instrumenty.value), ustawienia: Object.fromEntries(Object.entries(ust).map(([k, el]) => [k, Number(el.value)])) });
+          } catch (e) {
+            wyczysc(info).append(msg(e instanceof SyntaxError ? 'Błąd w JSON: ' + e.message : e.message));
+            return;
+          }
+          wyczysc(glowna); await gielda();
+          glowna.prepend(msg('Zapisano giełdę.', 'ok'));
+        }), '.glowny'),
+        btn('Przelicz całą historię', bezpiecznie(async () => {
+          if (!confirm('Wygenerować całą historię kursów od nowa? Portfele graczy zostaną, ale wykresy się zmienią.')) return;
+          await api('mg_gielda_przelicz', {});
+          wyczysc(glowna); await gielda();
+          glowna.prepend(msg('Historia przeliczona.', 'ok'));
+        }), '.zly'))),
+  );
+  await panelWydarzen(glowna, {
+    tytul: 'Wydarzenia rynkowe',
+    podglad: (s) => { szkic = s; rysujPodglad(); },
+    poZapisie: rysujPodglad,
+  });
+  rysujPodglad();
+}
+
+async function wydarzenia() {
+  await panelWydarzen(glowna, { tytul: 'Wydarzenia świata gry' });
 }
 
 // ---------- frakcje ----------
