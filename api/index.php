@@ -10,6 +10,9 @@ const DANE = __DIR__ . '/dane';
 const FRAKCJE = ['Rebelia', 'Imperium', 'Syndykat'];
 const STRAZNIK = "<?php http_response_code(404); exit; ?>\n";
 
+date_default_timezone_set('Europe/Warsaw');
+require __DIR__ . '/bank.php';
+
 session_set_cookie_params(['httponly' => true, 'samesite' => 'Strict', 'secure' => !empty($_SERVER['HTTPS'])]);
 session_name('dp_sesja');
 session_start();
@@ -145,6 +148,8 @@ $post = $_SERVER['REQUEST_METHOD'] === 'POST';
 if ($post && ($_SERVER['HTTP_X_DATAPAD'] ?? '') !== '1') {
     blad('Odrzucono żądanie.', 403);
 }
+
+obsluz_bank($akcja, $post);
 
 switch ($akcja) {
 

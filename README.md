@@ -33,6 +33,7 @@ js/rdzen/api.js          łączność z api/ (błędy w języku świata)
 js/rdzen/urzadzenie.js   producent, model i nazwa systemu (zmieniajcie tutaj)
 js/aplikacje/*.js        aplikacje: holonet, dekoder, harmonogram, frakcja, ustawienia
 api/index.php            jedno API dla wszystkiego (PHP 8.1+, dane w plikach)
+api/bank.php             logika banku (przelewy, odbiorcy, stałe dochody)
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
 assets/czcionki/         czcionka Aurebesh
@@ -46,6 +47,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5 | hub, stream, `/recruitment/` |
+| Bank | saldo i historia, przelewy na numer rachunku (z potwierdzeniem właściciela), stali odbiorcy | nowe |
 | Dekoder | odbiór dokumentu po sygnaturze, poziomy uprawnień, katalogi, animacja dekodowania | `/dekoder/gracz/` |
 | Harmonogram | kalendarz miesięczny, deklaracje obecności postaci (jedna na dzień) | `/calendar/` |
 | Sieć frakcji | planety i instalacje, zasoby (gracze zmieniają stany), drzewo dowodzenia | `/frakcja/gracz/` |
@@ -54,6 +56,22 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 Nowa aplikacja to plik w `js/aplikacje/`, który eksportuje
 `{ id, nazwa, ikona, uruchom(kontener, ctx) }`. Trzeba go jeszcze dopisać do listy `APLIKACJE`
 w `js/system.js` i do `PLIKI` w `sw.js`. Wzorem może być `ustawienia.js`, najprostsza z aplikacji.
+
+## Bank
+
+- Każda postać dostaje rachunek (numer `0000-0000-0000`) przy pierwszym wejściu do banku.
+  Waluta to kredyty (`kr`), tylko liczby całkowite.
+- Przelew idzie na numer rachunku. Po wpisaniu numeru bank pokazuje właściciela, a przed
+  wysłaniem jest ekran potwierdzenia. Nie da się przelać więcej, niż jest na koncie.
+- Stałych odbiorców zapisuje się z własną nazwą (np. „Mechanik z doków”), także przy przelewie.
+- **MG** (zakładka Bank) widzi salda i wszystkie operacje. Może zaksięgować jednorazową wpłatę
+  lub obciążenie i ustawia **stałe miesięczne dochody**: postać, kwota, dzień miesiąca (1–28),
+  nadawca i tytuł. Kwota ujemna działa jak stała opłata (np. czynsz za hangar) i może zejść
+  z saldem poniżej zera.
+- Dochody wypłacają się bez crona: przy każdym wejściu do banku system dopisuje wszystkie
+  wypłaty, których termin minął (z datą należnego dnia). Strefa czasowa: Europe/Warsaw.
+- Cały bank to jeden plik danych zmieniany pod blokadą, więc przelew wykonuje się w całości
+  albo wcale.
 
 ## Konta i bezpieczeństwo
 

@@ -80,7 +80,7 @@ function zalozMG() {
 function panel(u) {
   document.getElementById('kto').textContent = 'Zalogowano: ' + u.login;
   menu.hidden = false;
-  const zakladki = { konta: 'Konta', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
+  const zakladki = { konta: 'Konta', bank: 'Bank', dokumenty: 'Dokumenty', holonet: 'Holonet', frakcje: 'Frakcje', harmonogram: 'Harmonogram' };
   const rysujMenu = () => wyczysc(menu).append(
     ...Object.entries(zakladki).map(([k, n]) => h('button' + (k === biezaca ? '.on' : ''), { onclick: () => { biezaca = k; rysujMenu(); otworz(); } }, n)),
     h('button', { onclick: async () => { await api('wyloguj', {}); location.reload(); } }, 'Wyloguj'));
@@ -90,7 +90,7 @@ function panel(u) {
 
 function otworz() {
   wyczysc(glowna);
-  ({ konta, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
+  ({ konta, bank, dokumenty, holonet, frakcje, harmonogram }[biezaca])().catch((e) => glowna.prepend(msg(e.message)));
 }
 
 // ---------- konta ----------
@@ -133,6 +133,80 @@ async function konta(edytowany = null) {
               await api('mg_uzytkownik_usun', { id: x.id });
               wyczysc(glowna); await konta();
             }), '.zly')))))),
+  );
+}
+
+// ---------- bank ----------
+
+const kr = (n) => `${Number(n).toLocaleString('pl-PL')} kr`;
+const TYPY_OPERACJI = { przelew: 'przelew', dochod: 'stały dochód', korekta: 'operacja MG' };
+
+// Najbliższy termin wypłaty stałego dochodu (dzień miesiąca po ostatniej wypłacie).
+function nastepnaWyplata(d) {
+  const [r, m] = d.ostatnio.split('-').map(Number);
+  const t = new Date(r, m, d.dzien); // miesiąc m (0-based) = miesiąc po „ostatnio”
+  return t.toLocaleDateString('pl-PL');
+}
+
+async function bank(edytowany = null) {
+  const { konta, dochody, transakcje } = await api('mg_bank');
+  const nazwa = Object.fromEntries(konta.map((k) => [k.uid, k.postac]));
+  const wyborPostaci = (wybrana) => h('select', konta.map((k) => h('option', { value: k.uid, selected: k.uid === wybrana }, `${k.postac} (${k.frakcja})`)));
+  const odswiez = async (komunikat) => { wyczysc(glowna); await bank(); if (komunikat) glowna.prepend(msg(komunikat, 'ok')); };
+
+  // Operacja jednorazowa
+  const op = { uid: wyborPostaci(), kwota: h('input', { type: 'number', step: 1, placeholder: 'np. 500 albo -200' }), zrodlo: h('input', { placeholder: 'np. Nagroda Huttów' }), tytul: h('input') };
+  const wykonaj = bezpiecznie(async () => {
+    const kwota = Math.trunc(Number(op.kwota.value));
+    if (!kwota) throw new Error('Podaj kwotę różną od zera (ujemna = obciążenie).');
+    await api('mg_bank_korekta', { uid: op.uid.value, kwota, zrodlo: op.zrodlo.value, tytul: op.tytul.value });
+    await odswiez(`Zaksięgowano ${kr(kwota)} dla: ${nazwa[op.uid.value]}.`);
+  });
+
+  // Stały dochód
+  const e = edytowany || {};
+  const doch = {
+    uid: wyborPostaci(e.uid),
+    kwota: h('input', { type: 'number', step: 1, value: e.kwota ?? '' }),
+    dzien: h('input', { type: 'number', min: 1, max: 28, value: e.dzien ?? 1 }),
+    zrodlo: h('input', { value: e.zrodlo || '', placeholder: 'np. Dowództwo Rebelii' }),
+    tytul: h('input', { value: e.tytul || '', placeholder: 'np. Żołd miesięczny' }),
+  };
+  const zapiszDochod = bezpiecznie(async () => {
+    const kwota = Math.trunc(Number(doch.kwota.value));
+    if (!kwota) throw new Error('Podaj kwotę różną od zera (ujemna = stała opłata).');
+    await api('mg_bank_dochod_zapisz', { id: e.id || '', uid: doch.uid.value, kwota, dzien: Number(doch.dzien.value), zrodlo: doch.zrodlo.value, tytul: doch.tytul.value });
+    await odswiez('Zapisano stały dochód.');
+  });
+
+  glowna.append(
+    h('div.karta.przewijana', h('h2', 'Rachunki postaci'),
+      h('table', h('tr', h('th', 'Postać'), h('th', 'Frakcja'), h('th', 'Rachunek'), h('th', 'Saldo')),
+        konta.map((k) => h('tr', h('td', k.postac), h('td', k.frakcja), h('td', k.numer), h('td', kr(k.saldo)))))),
+    h('div.karta', h('h2', 'Operacja jednorazowa'),
+      h('p.slaby', 'Wpłata (kwota dodatnia) albo obciążenie (ujemna). Gracz zobaczy „Źródło” jako nadawcę lub odbiorcę.'),
+      h('div.siatka', pole('Postać', op.uid), pole('Kwota', op.kwota), pole('Źródło', op.zrodlo), pole('Tytuł', op.tytul)),
+      btn('Zaksięguj', wykonaj, '.glowny')),
+    h('div.karta', h('h2', e.id ? 'Edycja stałego dochodu' : 'Nowy stały dochód'),
+      h('p.slaby', 'Wypłacany co miesiąc w podanym dniu (1–28). Kwota ujemna działa jak stała opłata. Nowy dochód wypłaca się pierwszy raz w najbliższym takim dniu. Jeśli nikt nie wchodził do banku, zaległe wypłaty dopiszą się przy pierwszym wejściu.'),
+      h('div.siatka', pole('Postać', doch.uid), pole('Kwota miesięczna', doch.kwota), pole('Dzień miesiąca', doch.dzien), pole('Źródło (nadawca)', doch.zrodlo), pole('Tytuł', doch.tytul)),
+      h('div.rzad', btn('Zapisz', zapiszDochod, '.glowny'), e.id ? btn('Anuluj', () => { wyczysc(glowna); bank(); }) : null)),
+    h('div.karta.przewijana', h('h2', `Stałe dochody (${dochody.length})`),
+      h('table', h('tr', h('th', 'Postać'), h('th', 'Kwota'), h('th', 'Dzień'), h('th', 'Źródło / tytuł'), h('th', 'Następna wypłata'), h('th', '')),
+        dochody.map((d) => h('tr',
+          h('td', nazwa[d.uid] || '(usunięta postać)'), h('td', kr(d.kwota)), h('td', d.dzien),
+          h('td', d.zrodlo || '—', h('div.slaby', d.tytul || '')), h('td', nastepnaWyplata(d)),
+          h('td.rzad',
+            btn('Edytuj', () => { wyczysc(glowna); bank(d); }),
+            btn('Usuń', bezpiecznie(async () => {
+              if (!confirm('Usunąć stały dochód?')) return;
+              await api('mg_bank_dochod_usun', { id: d.id });
+              await odswiez('Usunięto.');
+            }), '.zly')))))),
+    h('div.karta.przewijana', h('h2', 'Ostatnie operacje'),
+      h('table', h('tr', h('th', 'Czas'), h('th', 'Typ'), h('th', 'Od'), h('th', 'Do'), h('th', 'Kwota'), h('th', 'Tytuł')),
+        transakcje.map((t) => h('tr', h('td', new Date(t.czas).toLocaleString('pl-PL')), h('td', TYPY_OPERACJI[t.typ] || t.typ),
+          h('td', t.od_nazwa), h('td', t.do_nazwa), h('td', kr(t.kwota)), h('td', t.tytul || ''))))),
   );
 }
 

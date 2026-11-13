@@ -413,3 +413,12 @@ table.tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
 .przelacznik-duzy button { min-height: 72px; border: 1px solid var(--linia); border-radius: var(--promien); background: none; cursor: pointer; font-size: 20px; letter-spacing: 0.1em; }
 .przelacznik-duzy button.aktywna { border-color: var(--zph); color: var(--zph); background: rgba(255, 63, 164, 0.08); }
 input[type="range"] { width: 100%; accent-color: var(--akcent); }
+
+/* ---------- bank ---------- */
+
+.bank-karta { border-color: var(--linia-mocna); background: linear-gradient(135deg, rgba(77, 226, 201, 0.12), var(--panel) 60%); }
+.bank-saldo { font-size: clamp(34px, 6vw, 52px); color: var(--akcent); margin: 6px 0; letter-spacing: 0.04em; }
+.bank-saldo.ujemne { color: var(--zly); }
+.bank-numer { letter-spacing: 0.12em; }
+.bank-plus { color: var(--ok); white-space: nowrap; }
+.bank-minus { color: var(--tekst-slaby); white-space: nowrap; }
