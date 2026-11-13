@@ -35,7 +35,8 @@ const OPERACJE_SZLAKU = ['zaladunek', 'rozladunek', 'kup', 'sprzedaj'];
 function katalog(): array
 {
     $k = wczytaj('katalog', []);
-    return ['towary' => $k['towary'] ?? [], 'planety' => $k['planety'] ?? [], 'oferty' => $k['oferty'] ?? []];
+    return ['towary' => $k['towary'] ?? [], 'planety' => $k['planety'] ?? [], 'oferty' => $k['oferty'] ?? [],
+        'lokacje' => $k['lokacje'] ?? [], 'ustawienia' => $k['ustawienia'] ?? ['tempo' => 1]];
 }
 
 // Test ukrytych cech: wartość ±2, opisana słownie. Najwyżej raz na TEST_CO_ILE_DNI dni.
@@ -107,6 +108,13 @@ function budynek_wymiary(array &$b): void
     $b['powierzchnia'] = max(0, (int) ($b['powierzchnia'] ?? 0));
     $b['pietra'] = max(0, min(500, (int) ($b['pietra'] ?? 0)));
     $b['szyby'] = max(0, min(500, (int) ($b['szyby'] ?? 0)));
+    // Pozycja na planecie (km) — wtedy budynek jest też lokacją do przemieszczania się.
+    foreach (['x', 'y'] as $os) {
+        if (isset($b[$os]) && is_numeric($b[$os])) $b[$os] = round((float) $b[$os], 2); else unset($b[$os]);
+    }
+    if (isset($b['jakosc'])) $b['jakosc'] = max(1, min(5, (int) $b['jakosc']));
+    if (isset($b['paliwo'])) $b['paliwo'] = max(0, (int) $b['paliwo']);
+    if (isset($b['cena_paliwa'])) $b['cena_paliwa'] = max(0, (int) $b['cena_paliwa']);
 }
 
 function firmy_puste(): array
@@ -117,9 +125,9 @@ function firmy_puste(): array
 function firma_dane_puste(string $profil): array
 {
     return match ($profil) {
-        'transport' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => []],
-        'komorka' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'misje' => []],
-        'agencja' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'misje' => [], 'cele' => []],
+        'transport' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'pojazdy' => []],
+        'komorka' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'pojazdy' => [], 'misje' => []],
+        'agencja' => ['flota' => [], 'zaloga' => [], 'magazyn' => [], 'szlaki' => [], 'budynki' => [], 'pojazdy' => [], 'misje' => [], 'cele' => []],
     };
 }
 
@@ -127,7 +135,7 @@ function firma_dane_puste(string $profil): array
 function firma_edytowalne(string $profil): array
 {
     return match ($profil) {
-        'transport', 'komorka', 'agencja' => ['flota', 'zaloga', 'magazyn', 'budynki'],
+        'transport', 'komorka', 'agencja' => ['flota', 'zaloga', 'magazyn', 'budynki', 'pojazdy'],
     };
 }
 
@@ -543,8 +551,29 @@ function obsluz_firmy(string $akcja, bool $post): void
                 budynek_wymiary($o);
             }
             unset($o);
-            zmien('katalog', function (&$k) use ($towary, $planety, $oferty) {
-                $k = ['towary' => $towary, 'planety' => $planety, 'oferty' => $oferty];
+            foreach ($planety as &$p) {
+                $p['urbanizacja'] = in_array($p['urbanizacja'] ?? '', ['brak', 'niska', 'wysoka'], true) ? $p['urbanizacja'] : 'brak';
+                if (isset($p['taksowka'])) $p['taksowka'] = max(1, (int) $p['taksowka']);
+            }
+            unset($p);
+            // Lokacje: miejsca na planetach z współrzędnymi w km.
+            $lokacje = nadaj_id((array) ($w['lokacje'] ?? []));
+            foreach ($lokacje as &$l) {
+                if (trim((string) ($l['nazwa'] ?? '')) === '') blad('Każda lokacja musi mieć nazwę.');
+                $l['planeta'] = katalog_id($planety, (string) ($l['planeta'] ?? ''), 'planeta');
+                $l['typ'] = in_array($l['typ'] ?? '', TYPY_LOKACJI, true) ? $l['typ'] : 'inne';
+                $l['x'] = round((float) ($l['x'] ?? 0), 2);
+                $l['y'] = round((float) ($l['y'] ?? 0), 2);
+                $l['publiczna'] = (bool) ($l['publiczna'] ?? true);
+                if (isset($l['jakosc'])) $l['jakosc'] = max(1, min(5, (int) $l['jakosc']));
+                if (isset($l['paliwo'])) $l['paliwo'] = max(0, (int) $l['paliwo']);
+                if (isset($l['cena_paliwa'])) $l['cena_paliwa'] = max(0, (int) $l['cena_paliwa']);
+                $l['oferta'] = array_values(array_map(fn($o) => ['nazwa' => mb_substr((string) ($o['nazwa'] ?? '?'), 0, 80), 'cena' => max(0, (int) ($o['cena'] ?? 0))], (array) ($l['oferta'] ?? [])));
+            }
+            unset($l);
+            $tempo = max(0.05, min(60, (float) ($w['tempo'] ?? 1)));
+            zmien('katalog', function (&$k) use ($towary, $planety, $oferty, $lokacje, $tempo) {
+                $k = ['towary' => $towary, 'planety' => $planety, 'oferty' => $oferty, 'lokacje' => $lokacje, 'ustawienia' => ['tempo' => $tempo]];
             });
             odpowiedz(['ok' => true]);
 
@@ -598,6 +627,7 @@ function obsluz_firmy(string $akcja, bool $post): void
             // Dane profilu z edytora MG. Kursy (szlaki) zostają nietknięte: zmienia je tylko gra.
             // Planety i towary można podać po nazwie albo po id.
             $dane = null;
+            $fid_zapis = (string) ($w['id'] ?? '');
             if (isset($w['dane'])) {
                 $kat = katalog();
                 $dane = [];
@@ -671,6 +701,25 @@ function obsluz_firmy(string $akcja, bool $post): void
                     unset($z);
                 }
                 unset($st);
+                // Statki: hangar (lokacja po nazwie) i paliwo w zbiorniku (%). Pojazdy firmy: lokacja, kierowca.
+                $lok = ruch_lokacje();
+                foreach ($dane['budynki'] ?? [] as $b) {
+                    if (isset($b['x'], $b['y']) && $fid_zapis !== '') $lok['b:' . $fid_zapis . ':' . $b['id']] = ['nazwa' => $b['nazwa'], 'planeta' => $b['planeta']];
+                }
+                foreach ($dane['flota'] as &$st) {
+                    $st['hangar'] = ruch_klucz($lok, (string) ($st['hangar'] ?? ''));
+                    $st['paliwo'] = max(0, min(100, (int) ($st['paliwo'] ?? 100)));
+                }
+                unset($st);
+                $dane['pojazdy'] = nadaj_id(array_values((array) ($dane['pojazdy'] ?? [])));
+                foreach ($dane['pojazdy'] as &$po) {
+                    $po['nazwa'] = (string) ($po['nazwa'] ?? '') ?: 'Pojazd';
+                    $po['typ'] = (string) ($po['typ'] ?? 'spider');
+                    $po['predkosc'] = max(10, min(2000, (int) ($po['predkosc'] ?? 200)));
+                    $po['lokacja'] = ruch_klucz($lok, (string) ($po['lokacja'] ?? ''));
+                    $po['kierowca'] = ($po['kierowca'] ?? '') === '' ? '' : katalog_id($osoby, (string) $po['kierowca'], 'osoba w załodze (kierowca)');
+                }
+                unset($po);
                 foreach ($dane['magazyn'] as &$m) {
                     $m = [
                         'planeta' => katalog_id($kat['planety'], (string) ($m['planeta'] ?? ''), 'planeta'),
@@ -687,7 +736,15 @@ function obsluz_firmy(string $akcja, bool $post): void
                         if ($f['profil'] !== $profil) blad('Profilu istniejącej firmy nie można zmienić.');
                         $f['nazwa'] = $nazwa;
                         $f['czlonkowie'] = array_values($czlonkowie);
-                        if ($dane !== null) $f['dane'] = array_merge($f['dane'], $dane);
+                        if ($dane !== null) {
+                            // Trwająca obsługa naziemna statków nie jest w edytorze MG — zachowujemy ją.
+                            $stare = array_column($f['dane']['flota'] ?? [], 'przygotowanie', 'id');
+                            foreach ($dane['flota'] as &$st) {
+                                if (!isset($st['przygotowanie']) && isset($stare[$st['id']])) $st['przygotowanie'] = $stare[$st['id']];
+                            }
+                            unset($st);
+                            $f['dane'] = array_merge($f['dane'], $dane);
+                        }
                         return $f['id'];
                     }
                 }

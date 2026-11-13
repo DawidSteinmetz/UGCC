@@ -1,5 +1,15 @@
 // Drobne narzędzia wspólne dla systemu i aplikacji.
 
+// Natywne append/prepend zamieniają null na tekst „null”. W całym systemie (datapad i panel MG)
+// budujemy widoki z warunkowymi kawałkami (`warunek ? element : null`), więc puste wartości
+// po prostu pomijamy.
+for (const metoda of ['append', 'prepend']) {
+  const oryginal = Element.prototype[metoda];
+  Element.prototype[metoda] = function (...wezly) {
+    return oryginal.apply(this, wezly.filter((x) => x !== null && x !== undefined && x !== false));
+  };
+}
+
 // Tworzenie elementów: h('div.klasa#id', {atrybuty}, ...dzieci)
 export function h(opis, atrybuty = {}, ...dzieci) {
   const [, tag = 'div', reszta = ''] = opis.match(/^([a-z0-9]*)(.*)$/i);

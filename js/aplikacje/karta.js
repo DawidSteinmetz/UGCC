@@ -82,7 +82,7 @@ export default {
               wiersz('Oddział', u.oddzial),
               wiersz('Ranga', u.ranga),
               wiersz('Poziom uprawnień', String(u.poziom)),
-              wiersz('Środki', `${Number(d.saldo).toLocaleString('pl-PL')} kr`),
+              wiersz('Środki', `${Number(d.saldo).toLocaleString('pl-PL')} kr na rachunku · ${Number(d.karta.gotowka || 0).toLocaleString('pl-PL')} kr gotówki`),
               d.firmy.length ? wiersz('Firmy', d.firmy.map((f) => `${f.nazwa} (${ROLE[f.rola]})`).join(', ')) : null))),
         h('div.panel' + (k.status.stan === 'poszukiwany' ? '.list-gonczy' : ''),
           h('h2', 'Status w rejestrach'),

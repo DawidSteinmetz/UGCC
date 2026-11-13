@@ -221,8 +221,17 @@ const WZOR_OFERT = [
   { nazwa: 'Kopalnia Kessa', typ: 'kopalnia', planeta: 'Zephyria', wspolrzedne: 'Z-04 · 12.7 / 88.1', powierzchnia: 2400, pietra: 2, szyby: 6, cena: 5000, pojemnosc: 40, pensja: 15, opis: 'Stare sztolnie, żyła rudy na wyczerpaniu.' },
   { nazwa: 'Hangar 7', typ: 'hangar', planeta: 'Zephyria', wspolrzedne: 'Z-01 · 3.2 / 4.9', powierzchnia: 900, pietra: 1, szyby: 0, cena: 800, pojemnosc: 5, pensja: 10 },
 ];
+const WZOR_LOKACJI = [
+  { nazwa: 'Port kosmiczny Zephyria', planeta: 'Zephyria', typ: 'port', x: 0, y: 0, publiczna: true },
+  { nazwa: 'Hangar 3', planeta: 'Zephyria', typ: 'hangar', x: 1.2, y: -0.8, publiczna: true, jakosc: 4, paliwo: 40, cena_paliwa: 15 },
+  { nazwa: 'Hotel Pod Bantą', planeta: 'Zephyria', typ: 'hotel', x: 4.5, y: 2.1, publiczna: true },
+  { nazwa: 'Bankomat przy targu', planeta: 'Zephyria', typ: 'bankomat', x: 4.2, y: 2.6, publiczna: true },
+  { nazwa: 'Sklep Watta', planeta: 'Zephyria', typ: 'sklep', x: 3.9, y: 2.9, publiczna: true, oferta: [{ nazwa: 'Medpak', cena: 120 }, { nazwa: 'Racje żywnościowe (tydzień)', cena: 40 }] },
+  { nazwa: 'Kantyna „Trzy Księżyce”', planeta: 'Zephyria', typ: 'kantyna', x: 6.3, y: 1.0, publiczna: true },
+  { nazwa: 'Melina Huttów', planeta: 'Zephyria', typ: 'sklep', x: 22.5, y: -14, publiczna: false, oferta: [{ nazwa: 'Blaster bez numerów', cena: 900 }] },
+];
 const WZOR_PLANET = [
-  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', specyfika: { 'żywność': 0.7, technika: 1.3 } },
+  { nazwa: 'Zephyria', sektor: 'Zewnętrzne Rubieże', urbanizacja: 'wysoka', taksowka: 4, specyfika: { 'żywność': 0.7, technika: 1.3 } },
   { nazwa: 'Tatooine', sektor: 'Arkanis', specyfika: { 'żywność': 1.6, paliwo: 0.8 } },
 ];
 
@@ -238,6 +247,8 @@ async function katalog() {
   const planety = h('textarea', { style: 'min-height:200px' }, JSON.stringify(planetyCzytelne, null, 2));
   const pl = Object.fromEntries(k.planety.map((p) => [p.id, p.nazwa]));
   const oferty = h('textarea', { style: 'min-height:200px' }, JSON.stringify(k.oferty.map((o) => ({ ...o, planeta: pl[o.planeta] || '' })), null, 2));
+  const lokacje = h('textarea', { style: 'min-height:260px' }, JSON.stringify((k.lokacje || []).map((l) => ({ ...l, planeta: pl[l.planeta] || '' })), null, 2));
+  const tempo = h('input', { type: 'number', min: 0.05, max: 60, step: 0.05, value: k.ustawienia?.tempo ?? 1, style: 'max-width:140px' });
   const info = h('div');
   glowna.append(h('div.karta',
     h('h2', 'Katalog gry'),
@@ -249,11 +260,15 @@ async function katalog() {
     info,
     h('label', 'Towary', towary), h('br'),
     h('label', 'Planety', planety), h('br'),
+    h('label', 'Lokacje — miejsca na planetach, do których postacie mogą się przemieszczać: nazwa, planeta, typ (hangar, port, hotel, bankomat, sklep, kantyna, biuro, garaz, inne), '
+      + 'x i y (km na mapie planety), publiczna (true = każdy zna; false = tylko postacie z „znane miejsca” w karcie). Hangar: jakosc 1–5 (szybkość obsługi), paliwo (zapas w %; brak = bez ograniczeń), cena_paliwa (kr za 1%). '
+      + 'Sklep: oferta [{"nazwa": "...", "cena": 0}]. Budynki firm z x i y są lokacjami automatycznie.', lokacje), h('br'),
+    h('label', 'Tempo czasu: sekundy rzeczywiste na minutę świata gry (1 = 30-minutowy przejazd trwa 30 s). Planety: urbanizacja brak / niska / wysoka (taksówki), taksowka = kr za km.', tempo), h('br'),
     h('label', 'Rynek nieruchomości — oferty budynków do kupienia przez firmy (nazwa, typ, planeta po nazwie, wspolrzedne, powierzchnia w m², pietra nad ziemią, szyby = poziomy pod ziemią, cena, pojemnosc, pensja na pracownika, opis). Kupiona oferta znika.', oferty), h('br'),
     h('div.rzad',
       btn('Zapisz katalog', async () => {
         try {
-          await api('mg_katalog_zapisz', { towary: JSON.parse(towary.value), planety: JSON.parse(planety.value), oferty: JSON.parse(oferty.value) });
+          await api('mg_katalog_zapisz', { towary: JSON.parse(towary.value), planety: JSON.parse(planety.value), oferty: JSON.parse(oferty.value), lokacje: JSON.parse(lokacje.value), tempo: Number(tempo.value) });
           wyczysc(glowna); await katalog();
           glowna.prepend(msg('Zapisano katalog.', 'ok'));
         } catch (e) {
@@ -264,6 +279,7 @@ async function katalog() {
         if (towary.value.trim() === '[]') towary.value = JSON.stringify(WZOR_TOWAROW, null, 2);
         if (planety.value.trim() === '[]') planety.value = JSON.stringify(WZOR_PLANET, null, 2);
         if (oferty.value.trim() === '[]') oferty.value = JSON.stringify(WZOR_OFERT, null, 2);
+        if (lokacje.value.trim() === '[]') lokacje.value = JSON.stringify(WZOR_LOKACJI, null, 2);
       }))));
 }
 
@@ -284,7 +300,7 @@ const ODLEGLOSCI = { blisko: 'blisko (planeta wypełnia dół ekranu)', srednio:
 
 async function stanPostaci() {
   const { postacie } = await api('mg_sceny');
-  const { postacie: karty, budynki } = await api('mg_karty');
+  const { postacie: karty, budynki, lokacje } = await api('mg_karty');
   const pozycje = Object.fromEntries(karty.map((k) => [k.uid, k.karta.pozycja]));
   let planetyKatalogu = [];
   try { planetyKatalogu = (await api('mg_katalog')).katalog.planety.map((p) => p.nazwa); } catch { /* katalog pusty */ }
@@ -313,7 +329,8 @@ async function stanPostaci() {
   };
   const opis = (sc) => [SCENY[sc.scena], ['wyjscie', 'orbita'].includes(sc.scena) ? `${PLANETY[sc.planeta]}, ${sc.odleglosc}` : '', sc.miejsce, sc.opis].filter(Boolean).join(' · ');
   const nazwaBudynku = Object.fromEntries(budynki.map((b) => [b.klucz, `${b.nazwa} (${b.firma})`]));
-  const opisPozycji = (p) => (p ? [p.wspolrzedne, p.miejsce, nazwaBudynku[p.budynek]].filter(Boolean).join(' · ') : '');
+  const nazwaLokacji = Object.fromEntries(lokacje.map((l) => [l.klucz, l.nazwa]));
+  const opisPozycji = (p) => (p ? [nazwaLokacji[p.lokacja], p.wspolrzedne, p.miejsce !== nazwaLokacji[p.lokacja] ? p.miejsce : '', nazwaBudynku[p.budynek]].filter(Boolean).join(' · ') : '');
 
   // Pozycja (karta postaci): planeta, współrzędne, miejsce, budynek.
   const poz = {
@@ -321,6 +338,8 @@ async function stanPostaci() {
     wspolrzedne: h('input', { placeholder: 'np. K-17 · 34.12 / -77.80' }),
     miejsce: h('input', { placeholder: 'np. pokój 14, hotel Pod Bantą' }),
     budynek: h('select', h('option', { value: '' }, '— żaden —'), budynki.map((b) => h('option', { value: b.klucz }, `${b.nazwa} (${b.firma})`))),
+    lokacja: h('select', h('option', { value: '' }, '— bez lokacji (nie może się przemieszczać) —'),
+      lokacje.map((l) => h('option', { value: l.klucz }, `${l.planeta} · ${l.nazwa} (${l.typ})`))),
   };
   const ustawPozycje = async () => {
     try {
@@ -365,7 +384,7 @@ async function stanPostaci() {
     h('div.karta',
       h('h2', 'Pozycja (karta postaci)'),
       h('p.slaby', 'Gdzie dokładnie są zaznaczone postacie. Budynek (np. biuro przy kopalni, hangar) pokazuje graczowi kartę budynku z jego wymiarami. Współrzędne to na razie tekst; mapa doda później liczby.'),
-      h('div.siatka', pole('Planeta', poz.planeta), pole('Współrzędne', poz.wspolrzedne), pole('Miejsce', poz.miejsce), pole('Budynek', poz.budynek)),
+      h('div.siatka', pole('Lokacja (ustala planetę i umożliwia przemieszczanie)', poz.lokacja), pole('Planeta (gdy bez lokacji)', poz.planeta), pole('Współrzędne', poz.wspolrzedne), pole('Miejsce (opis)', poz.miejsce), pole('Budynek', poz.budynek)),
       btn('Ustaw pozycję dla zaznaczonych', ustawPozycje, '.glowny')),
   );
 }
@@ -393,6 +412,9 @@ async function kartyPostaci(wybrany = null) {
     dokumenty: pole2(listaNaLinie(k.dokumenty), 90, 'Licencja pilota kl. B = ważna do GST17\nTożsamość: Mara Senn = fałszywa, dobra jakość'),
     kontakty: pole2(listaNaLinie(k.kontakty), 90, 'Dex Molo = mechanik w dokach Mos Eisley, winien przysługę'),
     ekwipunek: pole2(listaNaLinie(k.ekwipunek), 90, 'Blaster DL-44 = zmodyfikowany\nKomlink szyfrowany'),
+    gotowka: h('input', { type: 'number', min: 0, value: k.gotowka || 0 }),
+    znane: pole2((k.znane || []).join('\n'), 80, 'Melina Huttów\nTajny bankomat w dokach'),
+    pojazdy: pole2(JSON.stringify(k.pojazdy || [], null, 2), 90, '[{"nazwa": "Spider Kiry", "typ": "spider", "predkosc": 220, "lokacja": "Hotel Pod Bantą"}]'),
     stan: h('select', Object.entries({ czysty: 'czysty', notowany: 'notowany', poszukiwany: 'POSZUKIWANY (list gończy)' }).map(([a, b]) => h('option', { value: a, selected: k.status.stan === a }, b))),
     zlecajacy: h('input', { value: k.status.zlecajacy || '', placeholder: 'np. Imperium, Jabba' }),
     nagroda: h('input', { type: 'number', min: 0, value: k.status.nagroda || 0 }),
@@ -411,11 +433,12 @@ async function kartyPostaci(wybrany = null) {
         reputacja: zLinii(f.reputacja.value, Number),
         status: { stan: f.stan.value, zlecajacy: f.zlecajacy.value, nagroda: Number(f.nagroda.value), opis: f.opis.value },
         dokumenty: f.dokumenty.value, kontakty: f.kontakty.value, ekwipunek: f.ekwipunek.value,
+        gotowka: Number(f.gotowka.value), znane: f.znane.value, pojazdy: JSON.parse(f.pojazdy.value || '[]'),
       });
       wyczysc(glowna); await kartyPostaci(p.uid);
       glowna.prepend(msg(`Zapisano kartę: ${p.postac}.`, 'ok'));
     } catch (e) {
-      wyczysc(info).append(msg(e.message));
+      wyczysc(info).append(msg(e instanceof SyntaxError ? 'Błąd w JSON pojazdów: ' + e.message : e.message));
     }
   };
   glowna.append(
@@ -426,6 +449,7 @@ async function kartyPostaci(wybrany = null) {
       info,
       h('div.siatka', pole('Cechy (liczby)', f.atrybuty), pole('Umiejętności (liczby)', f.umiejetnosci), pole('Liczniki (obecne/max)', f.liczniki)),
       h('div.siatka', pole('Reputacja (−100…100)', f.reputacja), pole('Dokumenty i licencje', f.dokumenty), pole('Kontakty', f.kontakty), pole('Ekwipunek', f.ekwipunek)),
+      h('div.siatka', pole('Gotówka (kr)', f.gotowka), pole('Znane miejsca (niepubliczne lokacje, po jednej w linii)', f.znane), pole('Pojazdy prywatne (JSON: nazwa, typ, predkosc, lokacja)', f.pojazdy)),
       h('h2', { style: 'margin-top:12px' }, 'Status w rejestrach'),
       h('div.siatka', pole('Status', f.stan), pole('Zlecający', f.zlecajacy), pole('Nagroda (kr)', f.nagroda), pole('Uwagi', f.opis)),
       btn('Zapisz kartę', zapisz, '.glowny')),
@@ -526,16 +550,18 @@ function daneDoEdycji(d, kat) {
   const os = Object.fromEntries(d.zaloga.map((z) => [z.id, z.imie]));
   const bu = Object.fromEntries((d.budynki || []).map((b) => [b.id, b.nazwa]));
   const wynik = {
-    flota: d.flota.map((s) => ({ ...s, lokalizacja: pl[s.lokalizacja] || '', kapitan: os[s.kapitan] || '' })),
+    flota: d.flota.map(({ przygotowanie, ...s }) => ({ ...s, lokalizacja: pl[s.lokalizacja] || '', kapitan: os[s.kapitan] || '', hangar: LOKACJE[s.hangar] || '' })),
     zaloga: d.zaloga.map((z) => ({ ...z, statek: st[z.statek] || '', budynek: bu[z.budynek] || '' })),
     magazyn: d.magazyn.map((m) => ({ planeta: pl[m.planeta] || m.planeta, towar: tw[m.towar] || m.towar, ilosc: m.ilosc })),
   };
   wynik.budynki = (d.budynki || []).map((b) => ({ ...b, planeta: pl[b.planeta] || '', menedzer: os[b.menedzer] || '' }));
+  wynik.pojazdy = (d.pojazdy || []).map((p) => ({ ...p, lokacja: LOKACJE[p.lokacja] || '', kierowca: os[p.kierowca] || '' }));
   wynik.zaloga = wynik.zaloga.map((z) => ({ ...z, gracz: z.gracz ? (LOGINY[z.gracz] || z.gracz) : '' }));
   return wynik;
 }
 
 const LOGINY = {}; // id gracza -> login (uzupełniane przy wczytaniu zakładki Firmy)
+const LOKACJE = {}; // klucz lokacji -> nazwa (uzupełniane przy wczytaniu zakładki Firmy)
 
 const WZOR_AGENCJI = {
   flota: [{ nazwa: 'Szara Mewa', klasa: 'frachtowiec YT-2400', ladownosc: 40, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Tobb' }],
@@ -559,7 +585,9 @@ const WZOR_KOMORKI = {
 };
 
 const WZOR_TRANSPORTU = {
-  flota: [{ nazwa: 'Szary Wróbel', klasa: 'frachtowiec YT-1300', ladownosc: 100, stan: 'sprawny', lokalizacja: 'Zephyria', kapitan: 'Dax Morrow' }],
+  flota: [{ nazwa: 'Szary Wróbel', klasa: 'frachtowiec YT-1300', ladownosc: 100, stan: 'sprawny', lokalizacja: 'Zephyria', hangar: 'Hangar 3', paliwo: 35, kapitan: 'Dax Morrow' }],
+  pojazdy: [{ nazwa: 'Spider X-34', typ: 'spider', predkosc: 250, lokacja: 'Biuro firmy', kierowca: 'Dax Morrow' }],
+  budynki: [{ nazwa: 'Biuro firmy', typ: 'biuro', planeta: 'Zephyria', x: 8, y: -3, powierzchnia: 300, pietra: 2, opis: 'Biuro z garażem na dwa spidery.' }],
   zaloga: [
     { imie: 'Dax Morrow', funkcja: 'pilot', pensja: 300, statek: 'Szary Wróbel' },
     { imie: 'R5-K2', funkcja: 'droid astromechaniczny', pensja: 0, statek: '' },
@@ -571,6 +599,7 @@ async function firmy() {
   const { firmy: lista, katalog: kat } = await api('mg_firmy');
   const { uzytkownicy } = await api('mg_uzytkownicy');
   for (const u of uzytkownicy) LOGINY[u.id] = u.login;
+  for (const l of (await api('mg_karty')).lokacje) LOKACJE[l.klucz] = l.nazwa;
   const gracze = uzytkownicy.filter((u) => u.rola !== 'mg');
   const postac = Object.fromEntries(uzytkownicy.map((u) => [u.id, u.postac]));
   const odswiez = async (t) => { wyczysc(glowna); await firmy(); if (t) glowna.prepend(msg(t, 'ok')); };
@@ -649,9 +678,9 @@ async function firmy() {
   // Edytor jednej firmy (nowej albo istniejącej).
   const edytor = (f) => {
     const nowa = !f;
-    f = f || { id: '', nazwa: '', profil: 'transport', czlonkowie: [], dane: { flota: [], zaloga: [], magazyn: [], budynki: [] } };
+    f = f || { id: '', nazwa: '', profil: 'transport', czlonkowie: [], dane: { flota: [], zaloga: [], magazyn: [], budynki: [], pojazdy: [] } };
     // Nowa firma: zmiana profilu podmienia pusty szablon danych (komórka ma też budynki).
-    const pustyDlaProfilu = () => JSON.stringify({ flota: [], zaloga: [], magazyn: [], budynki: [] }, null, 2);
+    const pustyDlaProfilu = () => JSON.stringify({ flota: [], zaloga: [], magazyn: [], budynki: [], pojazdy: [] }, null, 2);
     const nazwa = h('input', { value: f.nazwa });
     const profil = h('select', { disabled: !nowa }, Object.entries(PROFILE_FIRM).map(([k, n]) => h('option', { value: k, selected: k === f.profil }, n)));
     const czlonkowie = h('div');
@@ -689,7 +718,9 @@ async function firmy() {
       czlonkowie,
       btn('+ Członek', () => dodajCzlonka()), h('br'), h('br'),
       h('label', 'Flota, załoga, magazyn, budynki — JSON. Planety, towary, statki, budynki i osoby wpisuj po nazwie. '
-        + 'Budynek: nazwa, typ, planeta, wspolrzedne, powierzchnia (m²), pietra (nad ziemią), szyby (poziomy pod ziemią), pojemnosc, pracownicy, pensja, menedzer, opis. '
+        + 'Budynek: nazwa, typ, planeta, wspolrzedne, powierzchnia (m²), pietra (nad ziemią), szyby (poziomy pod ziemią), pojemnosc, pracownicy, pensja, menedzer, opis; '
+        + 'x i y (km) robią z niego lokację (typ hangar: jakosc 1–5, paliwo, cena_paliwa). '
+        + 'Statek: hangar (nazwa lokacji, w której stoi) i paliwo (% w zbiorniku). Pojazdy (spidery itp.): nazwa, typ, predkosc (km/h), lokacja (gdzie stoi), kierowca (osoba z załogi, opcjonalnie). '
         + 'Stany statku: sprawny, uszkodzony, w naprawie. Stan osoby: zdrowy, ranny, spalony, zatrzymany. '
         + 'Agencja: „kryptonim” kontrahenta i „gracz” (login), jeśli to postać gracza — wtedy wypłaty idą na jego rachunek. '
         + 'Ukryte „statystyki” osób (1–10): ' + Object.entries(STATYSTYKI).map(([k, n]) => `${k} (${n})`).join(', ') + '. Gracze ich nie widzą — poznają je w przybliżeniu testem.', dane),

@@ -21,9 +21,29 @@ function karta_pusta(): array
         'dokumenty' => [],
         'kontakty' => [],
         'ekwipunek' => [],
-        'pozycja' => ['planeta' => '', 'wspolrzedne' => '', 'miejsce' => '', 'budynek' => ''],
+        'pozycja' => ['planeta' => '', 'wspolrzedne' => '', 'miejsce' => '', 'budynek' => '', 'lokacja' => ''],
         'notatki' => '',
+        'gotowka' => 0,
+        'pojazdy' => [],   // prywatne: { nazwa, typ, predkosc (km/h), lokacja (klucz) }
+        'znane' => [],     // nazwy albo klucze lokacji, które postać zna (poza publicznymi)
     ];
+}
+
+// Pojazdy prywatne z edytora MG: lokacja po nazwie albo kluczu.
+function karta_pojazdy(array $lista): array
+{
+    $lok = ruch_lokacje();
+    $wynik = [];
+    foreach (array_slice($lista, 0, 20) as $p) {
+        if (!is_array($p) || trim((string) ($p['nazwa'] ?? '')) === '') continue;
+        $wynik[] = [
+            'nazwa' => mb_substr(trim($p['nazwa']), 0, 60),
+            'typ' => mb_substr(trim((string) ($p['typ'] ?? 'spider')), 0, 40),
+            'predkosc' => max(10, min(2000, (int) ($p['predkosc'] ?? 200))),
+            'lokacja' => ruch_klucz($lok, (string) ($p['lokacja'] ?? '')),
+        ];
+    }
+    return $wynik;
 }
 
 function karta(string $uid): array
@@ -63,6 +83,7 @@ function obsluz_karty(string $akcja, bool $post): void
 
         case 'karta':
             $u = wymagaj_logowania();
+            ruch_dokoncz($u['id']);
             $k = karta($u['id']);
             // Pozycja w czytelnej postaci.
             $kat = katalog();
@@ -119,7 +140,17 @@ function obsluz_karty(string $akcja, bool $post): void
             foreach (wszystkie_budynki() as $klucz => $b) {
                 $budynki[] = ['klucz' => $klucz, 'nazwa' => $b['nazwa'], 'firma' => $b['firma']];
             }
-            odpowiedz(['postacie' => $lista, 'budynki' => $budynki]);
+            $nazwyPlanet = array_column(katalog()['planety'], 'nazwa', 'id');
+            $lokacje = [];
+            foreach (ruch_lokacje() as $klucz => $l) {
+                $lokacje[] = ['klucz' => $klucz, 'nazwa' => $l['nazwa'], 'planeta' => $nazwyPlanet[$l['planeta']] ?? '?', 'typ' => $l['typ']];
+            }
+            $nazwyLok = array_column($lokacje, 'nazwa', 'klucz');
+            foreach ($lista as &$x) {
+                $x['karta']['pojazdy'] = array_map(fn($p) => ['lokacja' => $nazwyLok[$p['lokacja'] ?? ''] ?? ''] + $p, $x['karta']['pojazdy']);
+            }
+            unset($x);
+            odpowiedz(['postacie' => $lista, 'budynki' => $budynki, 'lokacje' => $lokacje]);
 
         case 'mg_karta_zapisz':
             // Wszystko poza pozycją i notatnikiem (pozycję ustawia się razem ze sceną).
@@ -157,6 +188,9 @@ function obsluz_karty(string $akcja, bool $post): void
                 'dokumenty' => pary_z_tekstu((string) ($w['dokumenty'] ?? '')),
                 'kontakty' => pary_z_tekstu((string) ($w['kontakty'] ?? '')),
                 'ekwipunek' => pary_z_tekstu((string) ($w['ekwipunek'] ?? ''), 200),
+                'gotowka' => max(0, (int) ($w['gotowka'] ?? 0)),
+                'znane' => array_values(array_filter(array_map(fn($x) => mb_substr(trim($x), 0, 80), preg_split('/\R/u', (string) ($w['znane'] ?? ''))))),
+                'pojazdy' => karta_pojazdy((array) ($w['pojazdy'] ?? [])),
             ];
             zmien('karty', function (&$k) use ($uid, $dane) {
                 $k[$uid] = array_merge($k[$uid] ?? [], $dane);
@@ -174,15 +208,25 @@ function obsluz_karty(string $akcja, bool $post): void
             $planeta = $planeta === '' ? '' : katalog_id(katalog()['planety'], $planeta, 'planeta');
             $budynek = (string) ($w['budynek'] ?? '');
             if ($budynek !== '' && !isset(wszystkie_budynki()[$budynek])) blad('Nie ma takiego budynku.');
+            // Lokacja (miejsce z katalogu albo budynek z x, y): ustala też planetę i budynek.
+            $lokacja = (string) ($w['lokacja'] ?? '');
+            $lok = ruch_lokacje();
+            if ($lokacja !== '' && !isset($lok[$lokacja])) blad('Nie ma takiej lokacji.');
+            if ($lokacja !== '') {
+                $planeta = $lok[$lokacja]['planeta'];
+                if (str_starts_with($lokacja, 'b:')) $budynek = substr($lokacja, 2);
+            }
             $poz = [
                 'planeta' => $planeta,
                 'wspolrzedne' => pole('wspolrzedne', 80),
-                'miejsce' => pole('miejsce', 120),
+                'miejsce' => pole('miejsce', 120) ?: ($lokacja !== '' ? $lok[$lokacja]['nazwa'] : ''),
                 'budynek' => $budynek,
+                'lokacja' => $lokacja,
             ];
             zmien('karty', function (&$k) use ($uids, $poz) {
                 foreach ($uids as $uid) {
                     $k[$uid]['pozycja'] = $poz;
+                    unset($k[$uid]['podroz']); // MG przestawia postać: przerwana podróż
                 }
             });
             odpowiedz(['ok' => true]);

@@ -469,3 +469,19 @@ html.z-tlem .ikona-aplikacji { background: rgba(8, 18, 22, 0.62); backdrop-filte
 .kondygnacja { height: 16px; font-size: 10px; line-height: 16px; padding-left: 6px; border: 1px solid var(--linia); background: rgba(77, 226, 201, 0.08); color: var(--tekst-slaby); }
 .kondygnacja.pod { background: rgba(242, 184, 75, 0.08); margin: 0 30px; }
 .grunt { height: 3px; background: var(--akcent-2); margin: 3px -10px; }
+
+/* ---------- nawigacja i szybkie akcje ---------- */
+
+.szybkie-akcje { display: flex; flex-wrap: wrap; gap: 10px; margin: -12px 0 22px; }
+.szybkie-akcje:empty { display: none; }
+.szybka {
+  min-height: 40px; padding: 0 16px; border: 1px solid var(--akcent-2); border-radius: 20px;
+  background: rgba(242, 184, 75, 0.1); color: var(--akcent-2); letter-spacing: 0.08em; cursor: pointer;
+}
+html.z-tlem .szybka { background: rgba(20, 14, 4, 0.7); backdrop-filter: blur(3px); }
+.szybka:active { background: rgba(242, 184, 75, 0.25); }
+.nawi-tu { border-color: var(--linia-mocna); }
+.nawi-znak { width: 48px; height: 48px; flex: none; display: grid; place-items: center; font-size: 24px; color: var(--akcent); border: 1px solid var(--linia-mocna); border-radius: 50%; font-family: var(--lat); }
+.nawi-znak.maly { width: 32px; height: 32px; font-size: 16px; }
+.licznik-paliwa { display: inline-block; width: 120px; height: 8px; border: 1px solid var(--linia); border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.licznik-paliwa i { display: block; height: 100%; background: var(--akcent-2); }

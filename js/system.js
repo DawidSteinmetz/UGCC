@@ -13,8 +13,9 @@ import ustawienia from './aplikacje/ustawienia.js';
 import bank from './aplikacje/bank.js';
 import firma from './aplikacje/firma.js';
 import karta from './aplikacje/karta.js';
+import nawigacja, { odliczanie } from './aplikacje/nawigacja.js';
 
-const APLIKACJE = [karta, holonet, bank, firma, dekoder, harmonogram, frakcja, ustawienia];
+const APLIKACJE = [karta, nawigacja, holonet, bank, firma, dekoder, harmonogram, frakcja, ustawienia];
 
 const html = document.documentElement;
 const pulpit = document.getElementById('pulpit');
@@ -287,6 +288,45 @@ function ekranBlokady(komunikat = '') {
       h('span.lat', 'Aa'), h('span.aur', 'Aa'))));
 }
 
+// Szybkie akcje na pulpicie: podróż w toku, przygotowanie statku, najbliższy bankomat, taksówka.
+const szybkieAkcje = h('div.szybkie-akcje');
+let licznikAkcji = null;
+async function rysujSzybkieAkcje() {
+  clearInterval(licznikAkcji);
+  let d;
+  try { d = await api('nawigacja'); } catch { return wyczysc(szybkieAkcje); }
+  const roznica = d.teraz - Date.now() / 1000;
+  const teraz = () => Date.now() / 1000 + roznica;
+  const przyciski = [];
+  const akcja = (tekst, fn, dodatek = null) => przyciski.push(h('button.szybka', { onclick: fn }, tekst, dodatek));
+  const zostalo = (koniec) => { const el = h('b', { 'data-szybki': koniec }, ' ' + odliczanie(koniec - teraz())); return el; };
+  if (d.podroz) {
+    akcja(`W drodze → ${d.podroz.cel_nazwa}`, () => otworz('nawigacja'), zostalo(d.podroz.koniec));
+  } else if (d.gdzie) {
+    for (const s of d.statki.slice(0, 2)) {
+      const pr = s.przygotowanie;
+      if (pr && pr.gotowy > teraz()) akcja(`${s.nazwa}: obsługa naziemna`, () => otworz('nawigacja'), zostalo(pr.gotowy));
+      else if (pr && s.na_miejscu) akcja(`Wejdź na pokład: ${s.nazwa}`, () => otworz('nawigacja'));
+      else if (pr) akcja(`${s.nazwa} gotowy · jedź do hangaru`, () => otworz('nawigacja', { trasa: s.hangar.klucz, nazwa: s.hangar.nazwa }));
+      else akcja(`Przygotuj ${s.nazwa} do lotu`, () => otworz('nawigacja'));
+    }
+    const bankomat = d.miejsca.find((m) => m.typ === 'bankomat');
+    if (d.bankomat) akcja('Bankomat obok', () => otworz('nawigacja'));
+    else if (bankomat && bankomat.km <= 5) akcja(`Bankomat · ${bankomat.km} km`, () => otworz('nawigacja', { trasa: bankomat.klucz, nazwa: bankomat.nazwa }));
+    if (d.planeta?.urbanizacja && d.planeta.urbanizacja !== 'brak') akcja('Taksówka', () => otworz('nawigacja'));
+  }
+  wyczysc(szybkieAkcje).append(...przyciski);
+  licznikAkcji = setInterval(() => {
+    let koniec = false;
+    szybkieAkcje.querySelectorAll('[data-szybki]').forEach((el) => {
+      const z = Number(el.dataset.szybki) - teraz();
+      el.textContent = ' ' + odliczanie(z);
+      if (z <= 0) koniec = true;
+    });
+    if (koniec) rysujSzybkieAkcje();
+  }, 1000);
+}
+
 // 4. Pulpit z ikonami aplikacji.
 function ekranPulpitu() {
   zamknijAplikacje();
@@ -305,11 +345,13 @@ function ekranPulpitu() {
         h('div', h('b', u.postac)),
         h('div', [u.frakcja, u.oddzial].filter(Boolean).join(' · ')),
         u.ranga ? h('div', u.ranga) : null)),
+    szybkieAkcje,
     h('div.siatka-aplikacji',
       APLIKACJE.map((a) => h('button.ikona-aplikacji', { onclick: () => otworz(a.id) },
         ikona(a.ikona), h('span', a.nazwa)))),
   );
   odswiezZegar();
+  rysujSzybkieAkcje();
 }
 
 // ================================================================
@@ -317,13 +359,14 @@ function ekranPulpitu() {
 // ================================================================
 
 function zamknijAplikacje() {
+  clearInterval(licznikAkcji);
   if (stan.aplikacja) {
     try { stan.aplikacja.sprzataj?.(); } catch { /* aplikacja i tak znika */ }
     stan.aplikacja = null;
   }
 }
 
-function otworz(id) {
+function otworz(id, parametr = null) {
   const def = APLIKACJE.find((a) => a.id === id);
   if (!def || !stan.uzytkownik) return;
   zamknijAplikacje();
@@ -332,6 +375,7 @@ function otworz(id) {
   const w = widok();
   const kontekst = {
     uzytkownik: stan.uzytkownik,
+    parametr,
     alfabet,
     zablokuj: () => wyloguj(),
     pulpit: () => ekranPulpitu(),

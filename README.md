@@ -41,6 +41,7 @@ api/handel.php           ceny na planetach, kursy handlowe, automaty
 api/kanaly.php           czarny rynek informacji: wtyczki, kanały szyfrowane, słowniki
 api/sceny.php            stan faktyczny postaci (scena w tle datapada)
 api/karty.php            karta postaci: statystyki, reputacja, status, pozycja, notatnik
+api/ruch.php             przemieszczanie, przygotowanie statku, gotówka (bankomat, sklep)
 js/rdzen/scena.js        animacje tła: gwiazdy, skok, tunel, wyjście, planety
 api/dane/                dane gry, tylko na serwerze (poza gitem)
 gm/                      panel MG: konta, dokumenty, holonet, frakcje, harmonogram
@@ -54,6 +55,7 @@ Bez frameworków i bez budowania. Pliki trafiają na serwer w takiej postaci, w 
 
 | Aplikacja | Co robi | Skąd się wzięła |
 |---|---|---|
+| Nawigacja | gdzie jestem, dokąd i czym (pieszo, taksówka, pojazdy), przygotowanie statku do lotu, bankomat, sklep | nowe |
 | Karta postaci | tożsamość, status w rejestrach, dokumenty, pozycja (planeta, współrzędne, miejsce, budynek), statystyki, reputacja, kontakty, ekwipunek, notatnik | nowe |
 | Holonet | komunikaty sieci (pisze je MG), transmisja na żywo, przechwycony kanał B0R5, kanały szyfrowane z wtyczek | hub, stream, `/recruitment/` |
 | Firma | panel zależny od profilu: przewozy, komórka (plus misje), agencja handlowa (przykrywka ISB) | nowe |
@@ -250,6 +252,37 @@ Aplikacja „Karta postaci” (pierwsza na pulpicie). Wszystko oprócz notatnika
 
 **Budynki** (w firmach i na rynku nieruchomości) mają teraz: `wspolrzedne`, `powierzchnia` (m²),
 `pietra` (kondygnacje nad ziemią) i `szyby` (poziomy pod ziemią: szyby kopalni, piwnice, bunkry).
+
+## Przemieszczanie się (Nawigacja)
+
+- **Lokacje** (panel MG → Katalog → Lokacje): miejsca na planetach z liczbowymi współrzędnymi
+  w km (`x`, `y`) i typem: hangar, port, hotel, bankomat, sklep, kantyna, biuro, garaz, inne.
+  Budynki firm z `x` i `y` są lokacjami automatycznie. Postać zna lokacje **publiczne**, budynki
+  swoich firm i **znane miejsca** wpisane w karcie (np. melina, tajny bankomat).
+- **Pozycja:** MG ustawia lokację postaci w zakładce Stan postaci. Od tej chwili postać porusza
+  się sama, a po dotarciu jej pozycja zmienia się automatycznie.
+- **Środki transportu** (Nawigacja → Dokąd? → Trasa), posortowane od najszybszego:
+  - pieszo (5 km/h);
+  - **taksówka**: tylko na planetach z `urbanizacja` „wysoka” (szybko) albo „niska” (długo się
+    czeka), cena za km z `taksowka`, płatna kartą albo gotówką;
+  - **pojazdy** (np. spider) prywatne (karta postaci) i firmowe (edytor firmy), z prędkością
+    i pozycją. Jeśli pojazd stoi gdzie indziej, najpierw trzeba do niego dojść, a potem jedzie
+    razem z postacią. „Prowadzisz sam” zależy od umiejętności Pilotaż z karty (0 → wolno, 5 → szybko),
+    „z kierowcą” od ukrytego pilotażu kierowcy z załogi firmy.
+- **Czas:** podróże liczone są w minutach świata. Licznik na tablecie biegnie w tempie z katalogu
+  (`tempo` = sekundy rzeczywiste na minutę świata; 1 = 30-minutowy przejazd trwa 30 s).
+- **Przygotuj statek do lotu:** dla statków firm postaci stojących w hangarze (`hangar`
+  w edytorze firmy). Czas obsługi naziemnej = kontrola zależna od **jakości hangaru**
+  (`jakosc` 1–5: 3 h … 40 min) + **tankowanie** brakującego paliwa (`paliwo` statku w %)
+  + 2 h **dowozu**, gdy hangar ma za mały **zapas** (`paliwo` hangaru). Paliwo (`cena_paliwa`
+  za 1%) płaci rachunek firmy. W tym czasie gracz może dojechać do hangaru, a gdy statek jest
+  gotowy i postać jest na miejscu, pojawia się **„Wejdź na pokład”**. Start i lot ustala MG
+  (scena, pozycja).
+- **Gotówka:** postać ma portfel obok rachunku. **Bankomat** (gdy postać przy nim stoi):
+  wypłata i wpłata. **Sklep** (oferta w lokacji): zakup kartą albo gotówką, a towar trafia do
+  ekwipunku.
+- **Szybkie akcje na pulpicie:** podróż w toku z odliczaniem, „Przygotuj [statek] do lotu”
+  i stan obsługi, „Wejdź na pokład”, najbliższy bankomat (do 5 km), taksówka.
 
 ## Konta i bezpieczeństwo
 
