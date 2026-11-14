@@ -447,9 +447,10 @@ Przy pierwszym wejściu panel MG pozwala założyć konto MG. W panelu MG zakła
 
 ## Wdrożenie na b0r5.pl
 
-Wgrywa się samo: każda zmiana na gałęzi **`main`** uruchamia `.github/workflows/wdrozenie.yml`,
+Wgrywanie jest **na żądanie**: zakładka **Actions** na GitHubie → „Wdrożenie na serwer” →
+**Run workflow** (domyślnie z gałęzi `main`). Uruchamia `.github/workflows/wdrozenie.yml`,
 który przez FTP (TLS) wysyła zmienione pliki do katalogu `/b0r5.pl/UGCC/` na serwerze.
-Postęp widać w zakładce **Actions** na GitHubie; tam też jest ręczne „Run workflow”.
+Samo wypchnięcie kodu niczego nie wgrywa.
 
 - **Sekrety** (Settings → Secrets and variables → Actions): `FTP_SERVER`, `FTP_USERNAME`,
   `FTP_PASSWORD`. Hasła nie ma w repozytorium i nie może się tam znaleźć (repo jest publiczne).
@@ -460,7 +461,7 @@ Postęp widać w zakładce **Actions** na GitHubie; tam też jest ręczne „Run
   `/UGCC/gm/`, założyć konto MG i konta graczy.
 - **Tablety:** Chrome → „Dodaj do ekranu głównego”. Po zmianie plików systemu podbić `WERSJA`
   w `sw.js`, żeby tablety pobrały nowe pliki.
-- Gałęzie robocze (np. `ccr-…`) nie wdrażają się. Zmiana trafia na serwer po scaleniu z `main`.
+- Wdrażać należy z `main`. Gałąź roboczą (np. `ccr-…`) najpierw scal z `main`.
 
 ## Czcionka Aurebesh
 

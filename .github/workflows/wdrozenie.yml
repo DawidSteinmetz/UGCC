@@ -1,4 +1,4 @@
-# Wgrywanie na serwer b0r5.pl po każdej zmianie na gałęzi main.
+# Wgrywanie na serwer b0r5.pl na żądanie (ręczne uruchomienie).
 #
 # Dane logowania NIE są w tym pliku. Trzeba je wpisać raz w GitHubie:
 # Settings → Secrets and variables → Actions → New repository secret
@@ -12,10 +12,10 @@
 
 name: Wdrożenie na serwer
 
+# Tylko na żądanie: zakładka Actions → „Wdrożenie na serwer” → Run workflow
+# (albo prośba do Claude'a, który uruchamia to samo). Nic nie wgrywa się samo po zmianie kodu.
 on:
-  push:
-    branches: [main]
-  workflow_dispatch:   # ręczne uruchomienie z zakładki Actions
+  workflow_dispatch:
 
 concurrency:
   group: wdrozenie
